@@ -1,0 +1,20 @@
+[tool.poetry]
+name = "lil-nocap"
+version = "0.1.0"
+description = "A package for downloading bulk files from courtlistener"
+authors = ["sabzo <smhlambi@law.harvard.edu>"]
+license = "MIT"
+maintainers = ["sabzo <smhlambi@law.harvard.edu>"]
+readme = "README.md"
+homepage = "https://github.com/harvard-lil/nocap"
+repository = "https://github.com/python-poetry/poetry"
+documentation = "https://github.com/python-poetry/poetry"
+packages = [{include = "poetry_demo"}]
+keywords = ["Caselaw Access Project", "cap", "no-cap", "lil", "courtlistener"]
+
+[tool.poetry.dependencies]
+python = "^3.7"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
