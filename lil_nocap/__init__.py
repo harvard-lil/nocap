@@ -6,11 +6,21 @@ import time
 import timeit
 import os
 
-DataFrame = pd.core.frame.DataFrame
+class NoCap:
+  def __init__(self, opinions_fn, opinion_clusters_fn, courts_fn, dockets_fn, citation_fn):
+    self._opinions_fn = opinions_fn
+    self._opinion_clusters_fn = opinion_clusters_fn
+    self._courts_fn = courts_fn
+    self._dockets_fn = dockets_fn
+    self._citation_fn = citation_fn
 
-## Helper Functions
-# for reading large chunkfiles
-def read_csv_as_dfs(filename, 
+    self._df_courts = self.init_courts_df()
+    self._df_opinions = self.init_opinions_df()
+    self._df_opinion_clusters = self.init_opinion_clusters_df()
+    self._df_dockets = self.init_dockets_df()
+    self._df_citation = self.init_citation_df()
+
+  def read_csv_as_dfs(self, filename, 
                     num_dfs=10, 
                     max_rows=10**5, 
                     dtype=None, 
@@ -27,8 +37,8 @@ def read_csv_as_dfs(filename,
         counter = counter + 1
     return dfs_opinions
 
-# get a potentially large csv and turn it into a DataFrame
-def csv_to_df(filename, dtype = None, parse_dates = None, max_gb=5):
+  # get a potentially large csv and turn it into a DataFrame
+  def csv_to_df(self, filename, dtype = None, parse_dates = None, max_gb=5):
     start = time.perf_counter()
     file_size = os.path.getsize(filename)
     file_size_gb = round(file_size/10**9, 2)
@@ -44,91 +54,21 @@ def csv_to_df(filename, dtype = None, parse_dates = None, max_gb=5):
     print(f'{filename} read in {int((end-start)/60)} minutes')
     return df
 
-
-## Read the csv files
-### Courts
-courts_filename = 'courts-2022-12-31.csv'
-df_courts = csv_to_df(courts_filename)
-
-### Dockets
-parse_dates = [
-    'date_cert_granted', 
-    'date_cert_denied', 
-    'date_argued',
-    'date_reargued',
-    'date_reargument_denied',
-    'date_filed',
-    'date_terminated',
-    'date_last_filing',
-    'date_blocked'
-    
-]
-my_types = {
-    'appeal_from_str': 'string',
-    'assigned_to_str': 'string',
-    'referred_to_str': 'string',
-    'case_name_short' : 'string',
-    'case_name': 'string',
-    'case_name_full': 'string',
-    'court_id': 'string',
-    'cause':'string',
-    'nature_of_suit':'string',
-    'jury_demand':'string',
-    'jurisdiction_type':'string',
-    'appellate_fee_status':'string',
-    'appellate_case_type_information':'string',
-    'mdl_status':'string',
-    'filepath_ia':'string',
-}
-
-dockets_filename = 'dockets-2022-12-31.csv'
-file_size = os.path.getsize(dockets_filename)
-dfs_dockets = csv_to_df(dockets_filename, dtype=my_types, parse_dates=parse_dates)
-
-### Opinion Clusters
-opinion_clusters_filename ='opinion-clusters-2022-12-31.csv'
-df_opinion_clusters = csv_to_df(opinion_clusters_filename)
-
-### Citation Map
-citation_map_filename = 'citation-map-2022-12-31.csv'
-df_citation_map = csv_to_df(citation_map_filename)
-
-### Get Opinions
-
-# Read a million rows divided into 10 data frames
-opinion_dtypes = {
-    'download_url': 'string',
-    'local_path':'string',
-    'plain_text':'string',
-    'html':'string',
-    'html_lawbox':'string',
-    'html_columbia':'string',
-    'html_anon_2020':'string',
-    'html_with_citations':'string',
-    'local_path':'string'
-}
-opinions_filename = 'opinions-2022-12-31.csv'
-dfs_opinions = read_csv_as_dfs(opinions_filename, num_dfs=num_dfs, dtype=opinion_dtypes)
-df_opinions = dfs_opinions[0]
-#df_opinions = pd.concat(dfs_opinions)
-
-### CourtListener
-
-def df_row_by_value(df, column, match):
+  def df_row_by_value(self, df, column, match):
     return df.loc[df[column] == match]
 
-def get_columns_series(df):
+  def get_columns_series(self, df):
     return [df[col] for col in list(df.columns)]
 
-def col_value(col):
+  def col_value(self, col):
     if not col.isna():
         return col.to_numpy()[0]
 
-def is_pd_series(col):
+  def is_pd_series(self, col):
     return isinstance(col, pd.core.series.Series)
 
-# accepts a series -- a row from a dataframe
-def get_opinion_text(opinion):
+  # accepts a series -- a row from a dataframe
+  def get_opinion_text(self, opinion):
     text = ''
     pt = opinion.plain_text
     hl = opinion.html
@@ -151,91 +91,30 @@ def get_opinion_text(opinion):
         text = hla
     return text
 
-def get_citations(opinion_id, df_citations):
+  def get_citations(self, opinion_id, df_citations):
     cites_to = df_citations[df_citations['citing_opinion_id'] == opinion_id]['cited_opinion_id'].to_list()
     cited_by = df_citations[df_citations['cited_opinion_id'] == opinion_id]['citing_opinion_id'].to_list()
     return {
         'cites_to':cites_to,
         'cited_by':cited_by
     }
-    
-# accepts dataframes
-# opinion is a dataframe row! i.e. a dataframe with one row in it excluding headers
-def process(taxonomy:dict, opinion: DataFrame, opinion_clusters: DataFrame, courts: DataFrame, 
-            dockets: DataFrame, citations: DataFrame) -> dict:
-    opinion_id = opinion['id']
-    cluster_id = opinion['cluster_id']
-    # get each corresponding row from clusters, dockets, courts based on opinion id
-    cluster_row: DataFrame = df_row_by_value(opinion_clusters, 'id', cluster_id)
-    # get corresponding row from docket df based on cluster opinion id
-    docket_id = int(cluster_row['docket_id'])
-    docket_row: DataFrame = dockets[dockets['id'] == docket_id]
-    # return early if there's 
-    if docket_row.empty:
-        return 
-    court_row: DataFrame = courts[courts['id'] == docket_row['court_id'].iloc[0]]
-    if court_row.empty:
-        return
-    #get opinions cited to
-    citation_info = get_citations(opinion_id, citations)
-    cites_to = citation_info['cites_to']
-    cited_by = citation_info['cited_by']
-    #judges
-    judges = cluster_row.judges
-        
-    obj = {
-        'id': cluster_id,
-        'url': opinion['download_url'],
-        'name_abbreviation': cluster_row.case_name.iloc[0],
-        'name' : cluster_row.case_name_full.iloc[0],
-        'decision_date': docket_row.date_terminated.iloc[0],
-        'docket_number' : cluster_row.docket_id.iloc[0],
-        'citations' : cited_by,
-        'cites_to' : cites_to,
-        'court' : {'name': court_row.full_name.iloc[0]},
-        'jurisdiction' : {'name': court_row.jurisdiction.iloc[0]},
-        'casebody' : {'data': {
-            'judges': judges.iloc[0].split(',') if judges.notna().bool() else [],
-            'head_matter':'', #Ask CL about copyright,
-            'opinions': [{
-                'text': get_opinion_text(opinion), 
-                'author': '', 'type': ''}]
-            }
-        }
 
-    }
-    return obj
+  # initialize courts df
+  def init_courts_df(self, fn=None):
+    self._df_courts = self.csv_to_df(courts_fn or self._courts_fn)
 
-start = time.perf_counter()
-# hard coding 100 for now
-json = df_opinions.sample(100)[[
-            'id',
-            'local_path',
-            'download_url',
-            'cluster_id',
-            'xml_harvard',
-            'plain_text',
-            'html',
-            'html_lawbox',
-            'html_columbia',
-            'html_anon_2020'
-        ]].apply(
-        lambda row: process(
-            taxonomy, 
-            row, # force row to be a DataFrame than series
-            df_opinion_clusters, 
-            df_courts, 
-            dfs_dockets, 
-            df_citation_map)
-          ,
-        axis=1,
-        )
-end = time.perf_counter()
-print((end-start)/60)
+  # initialize opinions df
+  def init_opinions_df(self, fn=None):
+      self._df_opinions = self.csv_to_df(fn or self._opinions_fn)
 
-def main():
-  pass
+  # initialize opinion clusters df
+  def init_opinion_clusters_df(self, fn=None):
+      self._df_op_clusters = self.csv_to_df(fn or self._opinion_clusters_fn)
 
+  # initialize dockets df
+  def init_dockets_df(self, fn=None):
+      self._df_dockets = self.csv_to_df(fn or self._dockets_fn)
 
-if __name__ == "__main__":
-  main()
+  # initialize citation map df
+  def init_citation_df(self):
+      self._df_citations = self.csv_to_df(self._citation_fn)
