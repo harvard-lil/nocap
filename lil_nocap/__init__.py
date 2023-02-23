@@ -1,4 +1,4 @@
-#!/usr/bin/env python import pandas as pd import numpy as np
+#!/usr/bin/env 
 import pandas as pd
 import numpy as np
 import time
@@ -19,7 +19,8 @@ class NoCap:
     self._df_citation = self.init_citation_df()
 
     #self._df_opinions = self.init_opinions_df()
-
+    self.DataFrame = pd.core.frame.DataFrame
+    
   def read_csv_as_dfs(self, filename, 
                     num_dfs=10, 
                     max_rows=10**5, 
@@ -38,7 +39,7 @@ class NoCap:
     return dfs_opinions
 
   # get a potentially large csv and turn it into a DataFrame
-  def csv_to_df(self, filename, dtype = None, parse_dates = None, max_gb=5):
+  def csv_to_df(self, filename, dtype = None, parse_dates = None, max_gb=5, num_dfs=10**3):
     start = time.perf_counter()
     file_size = os.path.getsize(filename)
     file_size_gb = round(file_size/10**9, 2)
@@ -151,26 +152,49 @@ class NoCap:
   def init_citation_df(self, fn=None):
       return self.csv_to_df(fn or self._citation_fn)
 
+  ## Getters
+  def get_courts_df(self):
+      return self._df_courts
+
+  def get_citation_df(self):
+      return self._df_citation
+  
+  def get_dockets_df(self):
+      return self._df_dockets
+
+  def get_opinions_cluster_df(self):
+      return self._df_opinion_clusters
+
+  def get_opinions_df(self):
+      pass
+      
   # process
-  def process(self, taxonomy:dict, opinion: DataFrame, opinion_clusters: DataFrame, courts: DataFrame, 
-            dockets: DataFrame, citations: DataFrame) -> dict:
+  def process(self) -> dict:
+    dockets = get_dockets_df()
+    courts = get_courts_df()
+    citations = get_citation_df()
     opinion_id = opinion['id']
     cluster_id = opinion['cluster_id']
+
     # get each corresponding row from clusters, dockets, courts based on opinion id
-    cluster_row: DataFrame = df_row_by_value(opinion_clusters, 'id', cluster_id)
+    cluster_row: self.DataFrame = df_row_by_value(get_opinions_cluster_df(), 'id', cluster_id)
+
     # get corresponding row from docket df based on cluster opinion id
     docket_id = int(cluster_row['docket_id'])
-    docket_row: DataFrame = dockets[dockets['id'] == docket_id]
+    docket_row: self.DataFrame = dockets[dockets['id'] == docket_id]
+
     # return early if there's 
     if docket_row.empty:
         return 
-    court_row: DataFrame = courts[courts['id'] == docket_row['court_id'].iloc[0]]
+    court_row: self.DataFrame = courts[courts['id'] == docket_row['court_id'].iloc[0]]
     if court_row.empty:
         return
-    #get opinions cited to
+
+    # get opinions cited to
     citation_info = get_citations(opinion_id, citations)
     cites_to = citation_info['cites_to']
     cited_by = citation_info['cited_by']
+
     #judges
     judges = cluster_row.judges
         
@@ -189,18 +213,29 @@ class NoCap:
             'judges': judges.iloc[0].split(',') if judges.notna().bool() else [],
             'head_matter':'', #Ask CL about copyright,
             'opinions': [{
-                'text': get_opinion_text(opinion), 
+                'text': self.get_opinion_text(opinion), 
                 'author': '', 'type': ''}]
             }
         }
-
     }
     return obj
 
   def start(self):
     start = time.perf_counter()
-    # hard coding 100 for now
-    json = df_opinions.sample(100)[[
+    max_rows = 10000
+    opinion_dtypes = {
+        'download_url': 'string',
+        'local_path':'string',
+        'plain_text':'string',
+        'html':'string',
+        'html_lawbox':'string',
+        'html_columbia':'string',
+        'html_anon_2020':'string',
+        'html_with_citations':'string',
+        'local_path':'string'
+    }
+    for df in pd.read_csv(filename, chunksize=max_rows, dtype=opinion_dtypes, parse_dates=None, usecols=None):
+      json = df[[
             'id',
             'local_path',
             'download_url',
@@ -212,16 +247,8 @@ class NoCap:
             'html_columbia',
             'html_anon_2020'
           ]].apply(
-          lambda row: process(
-            taxonomy, 
-            row, # force row to be a DataFrame than series
-            df_opinion_clusters, 
-            df_courts, 
-            dfs_dockets, 
-            df_citation_map)
-            ,
-          axis=1,
+            lambda row: process(row),
+            axis=1,
           )
-    end = time.perf_counter()
-    print((end-start)/60)
- 
+      end = time.perf_counter()
+      print((end-start)/60)
