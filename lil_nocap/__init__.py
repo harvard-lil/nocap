@@ -234,7 +234,7 @@ class NoCap:
         'html_with_citations':'string',
         'local_path':'string'
     }
-    for df in pd.read_csv(filename, chunksize=max_rows, dtype=opinion_dtypes, parse_dates=None, usecols=None):
+    for df in pd.read_csv(self._opinions_fn, chunksize=max_rows, dtype=opinion_dtypes, parse_dates=None, usecols=None):
       json = df[[
             'id',
             'local_path',
@@ -250,5 +250,6 @@ class NoCap:
             lambda row: process(row),
             axis=1,
           )
+      print(json)
       end = time.perf_counter()
       print((end-start)/60)
