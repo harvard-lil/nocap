@@ -5,8 +5,6 @@ import numpy as np
 import time
 import timeit
 import os
-import seaborn as sns
-import matplotlib.pyplot as plt
 
 DataFrame = pd.core.frame.DataFrame
 
