@@ -15,8 +15,8 @@ class NoCap:
 
     self._df_courts = self.init_courts_df()
     self._df_opinion_clusters = self.init_opinion_clusters_df()
-    self._df_dockets = self.init_dockets_df()
     self._df_citation = self.init_citation_df()
+    self._df_dockets = self.init_dockets_df()
 
     #self._df_opinions = self.init_opinions_df()
     self.DataFrame = pd.core.frame.DataFrame
@@ -251,5 +251,5 @@ class NoCap:
             axis=1,
           )
       print(json)
-      end = time.perf_counter()
-      print((end-start)/60)
+    end = time.perf_counter()
+    print((end-start)/60)
