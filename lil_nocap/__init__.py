@@ -55,7 +55,7 @@ class NoCap:
     print(f'{filename} read in {int((end-start)/60)} minutes')
     return df
 
-  def df_row_by_value(df, column, match):
+  def df_row_by_value(self, df, column, match):
     return df.loc[df[column] == match]
   
   # accepts a series -- a row from a dataframe
@@ -169,15 +169,15 @@ class NoCap:
       pass
       
   # process
-  def process(self) -> dict:
-    dockets = get_dockets_df()
-    courts = get_courts_df()
-    citations = get_citation_df()
+  def process(self, opinion) -> dict:
+    dockets = self.get_dockets_df()
+    courts = self.get_courts_df()
+    citations = self.get_citation_df()
     opinion_id = opinion['id']
     cluster_id = opinion['cluster_id']
 
     # get each corresponding row from clusters, dockets, courts based on opinion id
-    cluster_row: self.DataFrame = df_row_by_value(get_opinions_cluster_df(), 'id', cluster_id)
+    cluster_row: self.DataFrame = self.df_row_by_value(self.get_opinions_cluster_df(), 'id', cluster_id)
 
     # get corresponding row from docket df based on cluster opinion id
     docket_id = int(cluster_row['docket_id'])
@@ -191,7 +191,7 @@ class NoCap:
         return
 
     # get opinions cited to
-    citation_info = get_citations(opinion_id, citations)
+    citation_info = self.get_citations(opinion_id, citations)
     cites_to = citation_info['cites_to']
     cited_by = citation_info['cited_by']
 
@@ -234,6 +234,11 @@ class NoCap:
         'html_with_citations':'string',
         'local_path':'string'
     }
+    file_size = os.path.getsize(self._opinions_fn)
+    file_size_gb = round(file_size/10**9, 2)
+    print(f'Importing {self._opinions_fn} as a dataframe')
+    print("File Size is :", file_size_gb, "GB")
+
     for df in pd.read_csv(self._opinions_fn, chunksize=max_rows, dtype=opinion_dtypes, parse_dates=None, usecols=None):
       json = df[[
             'id',
@@ -247,7 +252,7 @@ class NoCap:
             'html_columbia',
             'html_anon_2020'
           ]].apply(
-            lambda row: process(row),
+            lambda row: self.process(row),
             axis=1,
           )
       print(json)
