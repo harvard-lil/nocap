@@ -240,6 +240,7 @@ class NoCap:
     print("File Size is :", file_size_gb, "GB")
 
     for df in pd.read_csv(self._opinions_fn, chunksize=max_rows, dtype=opinion_dtypes, parse_dates=None, usecols=None):
+      print('Now reading opinions')
       json = df[[
             'id',
             'local_path',
@@ -252,9 +253,8 @@ class NoCap:
             'html_columbia',
             'html_anon_2020'
           ]].apply(
-            lambda row: self.process(row),
+            lambda row: print(f'{self.process(row)}\n'),
             axis=1,
           )
-      print(json)
     end = time.perf_counter()
     print((end-start)/60)
