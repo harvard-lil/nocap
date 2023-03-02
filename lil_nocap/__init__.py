@@ -4,6 +4,7 @@ import numpy as np
 import time
 import timeit
 import os
+import click
 
 class NoCap:
   def __init__(self, opinions_fn, opinion_clusters_fn, courts_fn, dockets_fn, citation_fn):
@@ -20,7 +21,17 @@ class NoCap:
 
     #self._df_opinions = self.init_opinions_df()
     self.DataFrame = pd.core.frame.DataFrame
-    
+
+  @click.command()  
+  @click.option('-o', help="local path to opinions file", required=True)
+  @click.option('-oc', help="local path to opinion clusters file", required=True)
+  @click.option('-c', help="local path to courts file ", required=True)
+  @click.option('-d', help="local path to dockets file", required=True)
+  @click.option('-cm', help="local path to citation map file", required=True)
+  def cli(o, oc, c, d, cm):
+    nc = NoCap(o, oc, c, d, cm)
+    click.echo('hi')
+
   def read_csv_as_dfs(self, filename, 
                     num_dfs=10, 
                     max_rows=10**5, 
@@ -258,3 +269,9 @@ class NoCap:
           )
     end = time.perf_counter()
     print((end-start)/60)
+
+
+if __name__ == '__main__':
+  NoCap.cli()
+   
+
