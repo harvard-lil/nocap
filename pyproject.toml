@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "lil-nocap"
-version = "0.3.0"
+version = "0.3.1"
 description = "A package for downloading bulk files from courtlistener"
 authors = ["sabzo <sabelo@sabelo.io>"]
 license = "MIT"
@@ -17,4 +17,4 @@ requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.scripts]
-nocap = "lil_nocap.nocap:cli"
+nocap = "lil_nocap.nocap:NoCap.cli"
