@@ -28,9 +28,10 @@ class NoCap:
   @click.option('-c', help="local path to courts file ", required=True)
   @click.option('-d', help="local path to dockets file", required=True)
   @click.option('-cm', help="local path to citation map file", required=True)
-  def cli(self, o, oc, c, d, cm):
-    nc = NoCap(o, oc, c, d, cm)
-    click.echo('hi')
+  def cli(o, oc, c, d, cm):
+    NoCap(o, oc, c, d, cm).start()
+   
+    
 
   def read_csv_as_dfs(self, filename, 
                     num_dfs=10, 
