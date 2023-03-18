@@ -1,6 +1,7 @@
 #!/usr/bin/env 
 import pandas as pd
 import numpy as np
+import multiprocessing as mp
 import time
 import timeit
 import os
@@ -32,7 +33,6 @@ class NoCap:
     NoCap(o, oc, c, d, cm).start()
    
     
-
   def read_csv_as_dfs(self, filename, 
                     num_dfs=10, 
                     max_rows=10**5, 
@@ -232,7 +232,26 @@ class NoCap:
     }
     return obj
 
+  def _taxonify(self, df):
+    df[[
+            'id',
+            'local_path',
+            'download_url',
+            'cluster_id',
+            'xml_harvard',
+            'plain_text',
+            'html',
+            'html_lawbox',
+            'html_columbia',
+            'html_anon_2020'
+          ]].apply(
+            lambda row: print(f'{self.process(row)}\n'),
+            axis=1,
+          )  
+
   def start(self):
+    num_workers = mp.cpu_count()  
+    pool = mp.Pool(num_workers)
     start = time.perf_counter()
     max_rows = 10000
     opinion_dtypes = {
@@ -252,22 +271,9 @@ class NoCap:
     print("File Size is :", file_size_gb, "GB")
 
     for df in pd.read_csv(self._opinions_fn, chunksize=max_rows, dtype=opinion_dtypes, parse_dates=None, usecols=None):
-      print('Now reading opinions')
-      json = df[[
-            'id',
-            'local_path',
-            'download_url',
-            'cluster_id',
-            'xml_harvard',
-            'plain_text',
-            'html',
-            'html_lawbox',
-            'html_columbia',
-            'html_anon_2020'
-          ]].apply(
-            lambda row: print(f'{self.process(row)}\n'),
-            axis=1,
-          )
+      #print('Now reading opinions')
+      json = pool.apply_async(self._taxonify(df), args = (df,))
+
     end = time.perf_counter()
     print((end-start)/60)
 
