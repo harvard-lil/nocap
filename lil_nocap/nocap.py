@@ -1,6 +1,8 @@
 #!/usr/bin/env 
 import pandas as pd
 import numpy as np
+import dask
+from dask.distributed import Client, progress
 import multiprocessing as mp
 import time
 import timeit
@@ -22,6 +24,7 @@ class NoCap:
 
     #self._df_opinions = self.init_opinions_df()
     self.DataFrame = pd.core.frame.DataFrame
+
 
   @click.command()  
   @click.option('-o', help="local path to opinions file", required=True)
@@ -250,10 +253,8 @@ class NoCap:
           )  
 
   def start(self):
-    num_workers = mp.cpu_count()  
-    pool = mp.Pool(num_workers)
     start = time.perf_counter()
-    max_rows = 10000
+    max_rows = 500
     opinion_dtypes = {
         'download_url': 'string',
         'local_path':'string',
@@ -269,11 +270,28 @@ class NoCap:
     file_size_gb = round(file_size/10**9, 2)
     print(f'Importing {self._opinions_fn} as a dataframe')
     print("File Size is :", file_size_gb, "GB")
-
+    client = Client(threads_per_worker=4, n_workers = int(mp.cpu_count()/2))
     for df in pd.read_csv(self._opinions_fn, chunksize=max_rows, dtype=opinion_dtypes, parse_dates=None, usecols=None):
       #print('Now reading opinions')
-      json = pool.apply_async(self._taxonify(df), args = (df,))
+      lazy_results = []
+      for index, row in df[[
+            'id',
+            'local_path',
+            'download_url',
+            'cluster_id',
+            'xml_harvard',
+            'plain_text',
+            'html',
+            'html_lawbox',
+            'html_columbia',
+            'html_anon_2020'
+          ]].iterrows():
 
+          lazy_result = dask.delayed(self.process)(row)
+          lazy_results.append(lazy_result)
+    results = dask.compute(*lazy_results)
+    print(*results, sep='\n')
+    
     end = time.perf_counter()
     print((end-start)/60)
 
