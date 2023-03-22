@@ -65,7 +65,7 @@ class NoCap:
         df = pd.concat(self.read_csv_as_dfs(filename, num_dfs=10**5, max_rows=10**7, 
                                        dtype=dtype, parse_dates=parse_dates, usecols=usecols))
     else:
-        df = pd.read_csv(filename, dtype=dtype, parse_dates=parse_dates, usecols=None)
+        df = pd.read_csv(filename, dtype=dtype, parse_dates=parse_dates, usecols=usecols)
     end = time.perf_counter()
     print(f'{filename} read in {int((end-start)/60)} minutes')
     return df
