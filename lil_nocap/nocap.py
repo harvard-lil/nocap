@@ -54,7 +54,7 @@ class NoCap:
     return dfs_opinions
 
   # get a potentially large csv and turn it into a DataFrame
-  def csv_to_df(self, filename, dtype = None, parse_dates = None, max_gb=5, num_dfs=10**3):
+  def csv_to_df(self, filename, dtype = None, parse_dates = None, max_gb=5, num_dfs=10**3, usecols=None):
     start = time.perf_counter()
     file_size = os.path.getsize(filename)
     file_size_gb = round(file_size/10**9, 2)
@@ -63,9 +63,9 @@ class NoCap:
     df = None
     if file_size_gb > max_gb:
         df = pd.concat(self.read_csv_as_dfs(filename, num_dfs=10**5, max_rows=10**7, 
-                                       dtype=dtype, parse_dates=parse_dates))
+                                       dtype=dtype, parse_dates=parse_dates, usecols=usecols))
     else:
-        df = pd.read_csv(filename, dtype=dtype, parse_dates=parse_dates)
+        df = pd.read_csv(filename, dtype=dtype, parse_dates=parse_dates, usecols=None)
     end = time.perf_counter()
     print(f'{filename} read in {int((end-start)/60)} minutes')
     return df
@@ -132,36 +132,14 @@ class NoCap:
   # initialize dockets df
   def init_dockets_df(self, fn=None):
       parse_dates = [
-      'date_cert_granted', 
-      'date_cert_denied', 
-      'date_argued',
-      'date_reargued',
-      'date_reargument_denied',
-      'date_filed',
       'date_terminated',
-      'date_last_filing',
-      'date_blocked'
       ]
 
       my_types = {
-      'appeal_from_str': 'string',
-      'assigned_to_str': 'string',
-      'referred_to_str': 'string',
-      'case_name_short' : 'string',
-      'case_name': 'string',
-      'case_name_full': 'string',
-      'court_id': 'string',
-      'cause':'string',
-      'nature_of_suit':'string',
-      'jury_demand':'string',
-      'jurisdiction_type':'string',
-      'appellate_fee_status':'string',
-      'appellate_case_type_information':'string',
-      'mdl_status':'string',
-      'filepath_ia':'string',
+      'court_id': 'string'
       } 
 
-      return self.csv_to_df(fn or self._dockets_fn, dtype=my_types, parse_dates=parse_dates)
+      return self.csv_to_df(fn or self._dockets_fn, dtype=my_types, parse_dates=parse_dates, usecols=['court_id', 'id', 'date_terminated'])
 
   # initialize citation map df
   def init_citation_df(self, fn=None):
