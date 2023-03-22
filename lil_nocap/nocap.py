@@ -107,7 +107,8 @@ class NoCap:
 
   # initialize courts df
   def init_courts_df(self, fn=None):
-    return self.csv_to_df(fn or self._courts_fn)
+    usecols = ['id','full_name','jurisdiction']
+    return self.csv_to_df(fn or self._courts_fn, usecols=usecols)
 
   # initialize opinions df
   def init_opinions_df(self, fn=None):
@@ -127,7 +128,8 @@ class NoCap:
 
   # initialize opinion clusters df
   def init_opinion_clusters_df(self, fn=None):
-      return self.csv_to_df(fn or self._opinion_clusters_fn)
+      usecols = ['id', 'judges', 'docket_id', 'case_name', 'case_name_full']
+      return self.csv_to_df(fn or self._opinion_clusters_fn, usecols=usecols)
 
   # initialize dockets df
   def init_dockets_df(self, fn=None):
