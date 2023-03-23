@@ -170,7 +170,7 @@ class NoCap:
       pass
       
   # process
-  def process(self, opinion) -> dict:
+  def process_row(self, opinion) -> dict:
     dockets = self.get_dockets_df()
     courts = self.get_courts_df()
     citations = self.get_citation_df()
@@ -234,13 +234,28 @@ class NoCap:
             'html_columbia',
             'html_anon_2020'
           ]].apply(
-            lambda row: print(f'{self.process(row)}\n'),
+            lambda row: print(f'{self.process_row(row)}\n'),
             axis=1,
           )  
 
+  def process_df(self, df):
+    for index, row in df[[
+            'id',
+            'local_path',
+            'download_url',
+            'cluster_id',
+            'xml_harvard',
+            'plain_text',
+            'html',
+            'html_lawbox',
+            'html_columbia',
+            'html_anon_2020'
+          ]].iterrows():
+     self.process_row(row)
+
   def start(self):
     start = time.perf_counter()
-    max_rows = 500
+    max_rows = 10000
     opinion_dtypes = {
         'download_url': 'string',
         'local_path':'string',
@@ -261,27 +276,13 @@ class NoCap:
     lazy_results = []
     for df in pd.read_csv(self._opinions_fn, chunksize=max_rows, dtype=opinion_dtypes, parse_dates=None, usecols=None):
       #print('Now reading opinions')
-      for index, row in df[[
-            'id',
-            'local_path',
-            'download_url',
-            'cluster_id',
-            'xml_harvard',
-            'plain_text',
-            'html',
-            'html_lawbox',
-            'html_columbia',
-            'html_anon_2020'
-          ]].iterrows():
-
-          lazy_result = dask.delayed(self.process)(row)
+          lazy_result = dask.delayed(self.process_df)(df)
           lazy_results.append(lazy_result)
     results = dask.compute(*lazy_results)
     print(*results, sep='\n')
     
     end = time.perf_counter()
     print((end-start)/60)
-
 
 if __name__ == '__main__':
   NoCap.cli()
