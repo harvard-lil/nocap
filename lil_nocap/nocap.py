@@ -251,11 +251,11 @@ class NoCap:
             'html_columbia',
             'html_anon_2020'
           ]].iterrows():
-     self.process_row(row)
+     print(f'{self.process_row(row)}\n')
 
   def start(self):
     start = time.perf_counter()
-    max_rows = 10000
+    max_rows = 5000
     opinion_dtypes = {
         'download_url': 'string',
         'local_path':'string',
@@ -273,13 +273,13 @@ class NoCap:
     print("File Size is :", file_size_gb, "GB")
     self._client = Client(threads_per_worker=4, n_workers = int(mp.cpu_count()/2))
     print(self._client)
-    lazy_results = []
+    futures = []
     for df in pd.read_csv(self._opinions_fn, chunksize=max_rows, dtype=opinion_dtypes, parse_dates=None, usecols=None):
-      #print('Now reading opinions')
-          lazy_result = dask.delayed(self.process_df)(df)
-          lazy_results.append(lazy_result)
-    results = dask.compute(*lazy_results)
-    print(*results, sep='\n')
+      print('Now reading opinions')
+      future = self._client.submit(self.process_df, df)
+      futures.append(future)       
+    results = self._client.gather(futures)
+    #print(*results, sep='\n')
     
     end = time.perf_counter()
     print((end-start)/60)
