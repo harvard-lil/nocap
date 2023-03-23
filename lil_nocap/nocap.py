@@ -25,6 +25,7 @@ class NoCap:
     #self._df_opinions = self.init_opinions_df()
     self.DataFrame = pd.core.frame.DataFrame
 
+    self._client = None
 
   @click.command()  
   @click.option('-o', help="local path to opinions file", required=True)
@@ -41,12 +42,13 @@ class NoCap:
                     max_rows=10**5, 
                     dtype=None, 
                     parse_dates=None,
-                    usecols=None
+                    usecols=None,
+                    index_col=None
                    ):
     counter = 0
     dfs_opinions = []
     for df in pd.read_csv(filename, chunksize=max_rows, dtype=dtype, 
-                          parse_dates=parse_dates, usecols=usecols):
+                          parse_dates=parse_dates, usecols=usecols, index_col=index_col):
         if counter >= num_dfs:
             break
         dfs_opinions.append(df)
@@ -54,7 +56,7 @@ class NoCap:
     return dfs_opinions
 
   # get a potentially large csv and turn it into a DataFrame
-  def csv_to_df(self, filename, dtype = None, parse_dates = None, max_gb=5, num_dfs=10**3, usecols=None):
+  def csv_to_df(self, filename, dtype = None, parse_dates = None, max_gb=5, num_dfs=10**3, usecols=None, index_col=None):
     start = time.perf_counter()
     file_size = os.path.getsize(filename)
     file_size_gb = round(file_size/10**9, 2)
@@ -63,12 +65,16 @@ class NoCap:
     df = None
     if file_size_gb > max_gb:
         df = pd.concat(self.read_csv_as_dfs(filename, num_dfs=10**5, max_rows=10**7, 
-                                       dtype=dtype, parse_dates=parse_dates, usecols=usecols))
+                                       dtype=dtype, parse_dates=parse_dates, usecols=usecols, index_col=None))
     else:
-        df = pd.read_csv(filename, dtype=dtype, parse_dates=parse_dates, usecols=usecols)
+        df = pd.read_csv(filename, dtype=dtype, parse_dates=parse_dates, usecols=usecols, index_col=index_col)
     end = time.perf_counter()
     print(f'{filename} read in {int((end-start)/60)} minutes')
     return df
+
+  # get cluster client
+  def get_cluster_client(self):
+    return self._client
 
   def df_row_by_value(self, df, column, match):
     return df.loc[df[column] == match]
@@ -108,7 +114,7 @@ class NoCap:
   # initialize courts df
   def init_courts_df(self, fn=None):
     usecols = ['id','full_name','jurisdiction']
-    return self.csv_to_df(fn or self._courts_fn, usecols=usecols)
+    return self.csv_to_df(fn or self._courts_fn, usecols=usecols, index_col='id').sort_index()
 
   # initialize opinions df
   def init_opinions_df(self, fn=None):
@@ -124,12 +130,12 @@ class NoCap:
         'local_path':'string'
       } 
 
-      return self.csv_to_df(fn or self._opinions_fn, dtype=opinion_dtypes)
+      return self.csv_to_df(fn or self._opinions_fn, dtype=opinion_dtypes, index_col='id')
 
   # initialize opinion clusters df
   def init_opinion_clusters_df(self, fn=None):
       usecols = ['id', 'judges', 'docket_id', 'case_name', 'case_name_full']
-      return self.csv_to_df(fn or self._opinion_clusters_fn, usecols=usecols)
+      return self.csv_to_df(fn or self._opinion_clusters_fn, usecols=usecols, index_col='id').sort_index()
 
   # initialize dockets df
   def init_dockets_df(self, fn=None):
@@ -141,11 +147,11 @@ class NoCap:
       'court_id': 'string'
       } 
 
-      return self.csv_to_df(fn or self._dockets_fn, dtype=my_types, parse_dates=parse_dates, usecols=['court_id', 'id', 'date_terminated'])
+      return self.csv_to_df(fn or self._dockets_fn, dtype=my_types, parse_dates=parse_dates, usecols=['court_id', 'id', 'date_terminated'], index_col='id').sort_index()
 
   # initialize citation map df
   def init_citation_df(self, fn=None):
-      return self.csv_to_df(fn or self._citation_fn)
+      return self.csv_to_df(fn or self._citation_fn, index_col='id').sort_index()
 
   ## Getters
   def get_courts_df(self):
@@ -250,10 +256,11 @@ class NoCap:
     file_size_gb = round(file_size/10**9, 2)
     print(f'Importing {self._opinions_fn} as a dataframe')
     print("File Size is :", file_size_gb, "GB")
-    client = Client(threads_per_worker=4, n_workers = int(mp.cpu_count()/2))
+    self._client = Client(threads_per_worker=4, n_workers = int(mp.cpu_count()/2))
+    print(self._client)
+    lazy_results = []
     for df in pd.read_csv(self._opinions_fn, chunksize=max_rows, dtype=opinion_dtypes, parse_dates=None, usecols=None):
       #print('Now reading opinions')
-      lazy_results = []
       for index, row in df[[
             'id',
             'local_path',
