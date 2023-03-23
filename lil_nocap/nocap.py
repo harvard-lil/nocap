@@ -65,7 +65,7 @@ class NoCap:
     df = None
     if file_size_gb > max_gb:
         df = pd.concat(self.read_csv_as_dfs(filename, num_dfs=10**5, max_rows=10**7, 
-                                       dtype=dtype, parse_dates=parse_dates, usecols=usecols, index_col=None))
+                                       dtype=dtype, parse_dates=parse_dates, usecols=usecols, index_col=index_col))
     else:
         df = pd.read_csv(filename, dtype=dtype, parse_dates=parse_dates, usecols=usecols, index_col=index_col)
     end = time.perf_counter()
