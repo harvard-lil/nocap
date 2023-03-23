@@ -8,6 +8,7 @@ import time
 import timeit
 import os
 import click
+import re
 
 class NoCap:
   def __init__(self, opinions_fn, opinion_clusters_fn, courts_fn, dockets_fn, citation_fn):
@@ -192,6 +193,12 @@ class NoCap:
 
     #judges
     judges = cluster_row.judges
+    judge_list = [
+        judge
+        for judge in
+            (judges.iloc[0].split(',') if judges.notna().bool() else [])
+        if not re.match('[cj]?j\.', judge)
+    ]
         
     obj = {
         'id': cluster_id,
@@ -205,7 +212,7 @@ class NoCap:
         'court' : {'name': court_row.full_name.iloc[0]},
         'jurisdiction' : {'name': court_row.jurisdiction.iloc[0]},
         'casebody' : {'data': {
-            'judges': judges.iloc[0].split(',') if judges.notna().bool() else [],
+            'judges': judge_list,
             'head_matter':'', #Ask CL about copyright,
             'opinions': [{
                 'text': self.get_opinion_text(opinion), 
@@ -278,5 +285,3 @@ class NoCap:
 
 if __name__ == '__main__':
   NoCap.cli()
-   
-
