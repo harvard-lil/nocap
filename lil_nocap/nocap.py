@@ -8,6 +8,7 @@ import time
 import timeit
 import os
 import click
+import re
 
 class NoCap:
   def __init__(self, opinions_fn, opinion_clusters_fn, courts_fn, dockets_fn, citation_fn):
@@ -25,7 +26,7 @@ class NoCap:
     #self._df_opinions = self.init_opinions_df()
     self.DataFrame = pd.core.frame.DataFrame
 
-    self._client = None
+    self._client = Client(threads_per_worker=4, n_workers = int(mp.cpu_count()*0.8))
 
   @click.command()  
   @click.option('-o', help="local path to opinions file", required=True)
@@ -36,6 +37,9 @@ class NoCap:
   def cli(o, oc, c, d, cm):
     NoCap(o, oc, c, d, cm).start()
    
+
+  def get_client(self):
+    return self._client
     
   def read_csv_as_dfs(self, filename, 
                     num_dfs=10, 
@@ -114,7 +118,7 @@ class NoCap:
   # initialize courts df
   def init_courts_df(self, fn=None):
     usecols = ['id','full_name','jurisdiction']
-    return self.csv_to_df(fn or self._courts_fn, usecols=usecols, index_col='id').sort_index()
+    return self.csv_to_df(fn or self._courts_fn, usecols=usecols, )
 
   # initialize opinions df
   def init_opinions_df(self, fn=None):
@@ -130,12 +134,12 @@ class NoCap:
         'local_path':'string'
       } 
 
-      return self.csv_to_df(fn or self._opinions_fn, dtype=opinion_dtypes, index_col='id')
+      return self.csv_to_df(fn or self._opinions_fn, dtype=opinion_dtypes, )
 
   # initialize opinion clusters df
   def init_opinion_clusters_df(self, fn=None):
       usecols = ['id', 'judges', 'docket_id', 'case_name', 'case_name_full']
-      return self.csv_to_df(fn or self._opinion_clusters_fn, usecols=usecols, index_col='id').sort_index()
+      return self.csv_to_df(fn or self._opinion_clusters_fn, usecols=usecols, )
 
   # initialize dockets df
   def init_dockets_df(self, fn=None):
@@ -147,11 +151,11 @@ class NoCap:
       'court_id': 'string'
       } 
 
-      return self.csv_to_df(fn or self._dockets_fn, dtype=my_types, parse_dates=parse_dates, usecols=['court_id', 'id', 'date_terminated'], index_col='id').sort_index()
+      return self.csv_to_df(fn or self._dockets_fn, dtype=my_types, parse_dates=parse_dates, usecols=['court_id', 'id', 'date_terminated'], )
 
   # initialize citation map df
   def init_citation_df(self, fn=None):
-      return self.csv_to_df(fn or self._citation_fn, index_col='id').sort_index()
+      return self.csv_to_df(fn or self._citation_fn, )
 
   ## Getters
   def get_courts_df(self):
@@ -198,6 +202,12 @@ class NoCap:
 
     #judges
     judges = cluster_row.judges
+    judge_list = [
+        judge
+        for judge in
+            (judges.iloc[0].split(',') if judges.notna().bool() else [])
+        if not re.match('[cj]?j\.', judge)
+    ]
         
     obj = {
         'id': cluster_id,
@@ -211,7 +221,7 @@ class NoCap:
         'court' : {'name': court_row.full_name.iloc[0]},
         'jurisdiction' : {'name': court_row.jurisdiction.iloc[0]},
         'casebody' : {'data': {
-            'judges': judges.iloc[0].split(',') if judges.notna().bool() else [],
+            'judges': judge_list,
             'head_matter':'', #Ask CL about copyright,
             'opinions': [{
                 'text': self.get_opinion_text(opinion), 
@@ -239,23 +249,14 @@ class NoCap:
           )  
 
   def process_df(self, df):
-    for index, row in df[[
-            'id',
-            'local_path',
-            'download_url',
-            'cluster_id',
-            'xml_harvard',
-            'plain_text',
-            'html',
-            'html_lawbox',
-            'html_columbia',
-            'html_anon_2020'
-          ]].iterrows():
-     print(f'{self.process_row(row)}\n')
+    res = []
+    for index, row in df.iterrows():
+      res.append(self.process_row(row))
+    return res
 
   def start(self):
     start = time.perf_counter()
-    max_rows = 5000
+    max_rows = 10000
     opinion_dtypes = {
         'download_url': 'string',
         'local_path':'string',
@@ -271,20 +272,27 @@ class NoCap:
     file_size_gb = round(file_size/10**9, 2)
     print(f'Importing {self._opinions_fn} as a dataframe')
     print("File Size is :", file_size_gb, "GB")
-    self._client = Client(threads_per_worker=4, n_workers = int(mp.cpu_count()/2))
-    print(self._client)
+    usecols = ['id',
+            'local_path',
+            'download_url',
+            'cluster_id',
+            'xml_harvard',
+            'plain_text',
+            'html',
+            'html_lawbox',
+            'html_columbia',
+            'html_anon_2020']
+
     futures = []
-    for df in pd.read_csv(self._opinions_fn, chunksize=max_rows, dtype=opinion_dtypes, parse_dates=None, usecols=None):
+    for df in pd.read_csv(self._opinions_fn, chunksize=max_rows, dtype=opinion_dtypes, parse_dates=None, usecols=usecols):
       print('Now reading opinions')
       future = self._client.submit(self.process_df, df)
       futures.append(future)       
     results = self._client.gather(futures)
-    #print(*results, sep='\n')
-    
+    print(*results, sep='\n')
+        
     end = time.perf_counter()
     print((end-start)/60)
 
 if __name__ == '__main__':
   NoCap.cli()
-   
-
