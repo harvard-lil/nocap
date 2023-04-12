@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import dask
 from dask.distributed import Client, progress
+import dask.dataframe as dd
 import multiprocessing as mp
 import time
 import timeit
@@ -36,7 +37,6 @@ class NoCap:
   @click.option('-cm', help="local path to citation map file", required=True)
   def cli(o, oc, c, d, cm):
     NoCap(o, oc, c, d, cm).start()
-   
     
   def read_csv_as_dfs(self, filename, 
                     num_dfs=10, 
@@ -115,7 +115,11 @@ class NoCap:
   # initialize courts df
   def init_courts_df(self, fn=None):
     usecols = ['id','full_name','jurisdiction']
-    return self.csv_to_df(fn or self._courts_fn, usecols=usecols, index_col='id').sort_index()
+    dtypes = {
+      'fullname': 'string',
+      'jurisdiction': 'string'
+    }
+    return self.csv_to_df(fn or self._courts_fn, dtype=dtypes, usecols=usecols)
 
   # initialize opinions df
   def init_opinions_df(self, fn=None):
@@ -136,23 +140,25 @@ class NoCap:
   # initialize opinion clusters df
   def init_opinion_clusters_df(self, fn=None):
       usecols = ['id', 'judges', 'docket_id', 'case_name', 'case_name_full']
-      return self.csv_to_df(fn or self._opinion_clusters_fn, usecols=usecols, index_col='id').sort_index()
+      dtypes = {
+        'judges':'string',
+        'case_name':'string',
+        'case_name_full':'string'
+      }
+      return self.csv_to_df(fn or self._opinion_clusters_fn, dtype=dtypes, usecols=usecols)
 
   # initialize dockets df
   def init_dockets_df(self, fn=None):
-      parse_dates = [
-      'date_terminated',
-      ]
-
       my_types = {
       'court_id': 'string'
       } 
 
-      return self.csv_to_df(fn or self._dockets_fn, dtype=my_types, parse_dates=parse_dates, usecols=['court_id', 'id', 'date_terminated'], index_col='id').sort_index()
+      return dd.read_csv(fn or self._dockets_fn, dtype=my_types, usecols=['court_id', 'id', 'date_terminated'],
+                         blocksize="32MB")
 
   # initialize citation map df
   def init_citation_df(self, fn=None):
-      return self.csv_to_df(fn or self._citation_fn, index_col='id').sort_index()
+      return self.csv_to_df(fn or self._citation_fn)
 
   ## Getters
   def get_courts_df(self):
@@ -183,12 +189,13 @@ class NoCap:
 
     # get corresponding row from docket df based on cluster opinion id
     docket_id = int(cluster_row['docket_id'])
-    docket_row: self.DataFrame = dockets[dockets['id'] == docket_id]
+    docket_row = dockets[dockets['id'] == docket_id].compute()
 
     # return early if there's 
-    if docket_row.empty:
+    if len(docket_row.columns) == 0:
         return 
-    court_row: self.DataFrame = courts[courts['id'] == docket_row['court_id'].iloc[0]]
+    cid = list(docket_row['court_id'])[0]
+    court_row: self.DataFrame = courts[courts['id'] == cid]
     if court_row.empty:
         return
 
@@ -206,12 +213,15 @@ class NoCap:
         if not re.match('[cj]?j\.', judge)
     ]
         
+    # sometimes date_terminated may be missing and recorded as NaN
+    date_terminated = list(docket_row['date_terminated'])[0]
+
     obj = {
         'id': cluster_id,
         'url': opinion['download_url'],
         'name_abbreviation': cluster_row.case_name.iloc[0],
         'name' : cluster_row.case_name_full.iloc[0],
-        'decision_date': docket_row.date_terminated.iloc[0],
+        'decision_date': date_terminated,
         'docket_number' : cluster_row.docket_id.iloc[0],
         'citations' : cited_by,
         'cites_to' : cites_to,
@@ -246,23 +256,14 @@ class NoCap:
           )  
 
   def process_df(self, df):
-    for index, row in df[[
-            'id',
-            'local_path',
-            'download_url',
-            'cluster_id',
-            'xml_harvard',
-            'plain_text',
-            'html',
-            'html_lawbox',
-            'html_columbia',
-            'html_anon_2020'
-          ]].iterrows():
-     self.process_row(row)
-
+    res = []
+    for index, row in df.iterrows():
+      res.append(self.process_row(row))
+    return res
+    
   def start(self):
     start = time.perf_counter()
-    max_rows = 10000
+    max_rows = 200
     opinion_dtypes = {
         'download_url': 'string',
         'local_path':'string',
@@ -274,6 +275,19 @@ class NoCap:
         'html_with_citations':'string',
         'local_path':'string'
     }
+    usecols = [
+           'id',
+           'download_url', 
+           'local_path',
+           'cluster_id',
+           'xml_harvard',
+           'plain_text',
+           'html',
+           'html_lawbox',
+           'html_columbia',
+           'html_anon_2020',
+           'local_path'           
+          ]
     file_size = os.path.getsize(self._opinions_fn)
     file_size_gb = round(file_size/10**9, 2)
     print(f'Importing {self._opinions_fn} as a dataframe')
@@ -281,7 +295,7 @@ class NoCap:
     self._client = Client(threads_per_worker=4, n_workers = int(mp.cpu_count()/2))
     print(self._client)
     lazy_results = []
-    for df in pd.read_csv(self._opinions_fn, chunksize=max_rows, dtype=opinion_dtypes, parse_dates=None, usecols=None):
+    for df in pd.read_csv(self._opinions_fn, chunksize=max_rows, dtype=opinion_dtypes, parse_dates=None, usecols=usecols):
       #print('Now reading opinions')
           lazy_result = dask.delayed(self.process_df)(df)
           lazy_results.append(lazy_result)
