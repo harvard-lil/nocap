@@ -27,8 +27,6 @@ class NoCap:
     #self._df_opinions = self.init_opinions_df()
     self.DataFrame = pd.core.frame.DataFrame
 
-    self._client = None
-
   @click.command()  
   @click.option('-o', help="local path to opinions file", required=True)
   @click.option('-oc', help="local path to opinion clusters file", required=True)
@@ -150,7 +148,8 @@ class NoCap:
   # initialize dockets df
   def init_dockets_df(self, fn=None):
       my_types = {
-      'court_id': 'string'
+      'court_id': 'string',
+      'date_terminated': 'string'
       } 
 
       return dd.read_csv(fn or self._dockets_fn, dtype=my_types, usecols=['court_id', 'id', 'date_terminated'],
@@ -255,15 +254,17 @@ class NoCap:
             axis=1,
           )  
 
-  def process_df(self, df):
-    res = []
+  def process_df(self, df, client):
+    futures = []
     for index, row in df.iterrows():
-      res.append(self.process_row(row))
-    return res
+      self.process_row(row)
+      future = client.submit(self.process_row, row)
+      futures.append(future)
+    #return client.gather(futures)
     
   def start(self):
     start = time.perf_counter()
-    max_rows = 200
+    max_rows = 50
     opinion_dtypes = {
         'download_url': 'string',
         'local_path':'string',
@@ -292,16 +293,10 @@ class NoCap:
     file_size_gb = round(file_size/10**9, 2)
     print(f'Importing {self._opinions_fn} as a dataframe')
     print("File Size is :", file_size_gb, "GB")
-    self._client = Client(threads_per_worker=4, n_workers = int(mp.cpu_count()/2))
-    print(self._client)
-    lazy_results = []
+    client = Client(threads_per_worker=4, n_workers = int(mp.cpu_count() * .35))
     for df in pd.read_csv(self._opinions_fn, chunksize=max_rows, dtype=opinion_dtypes, parse_dates=None, usecols=usecols):
-      #print('Now reading opinions')
-          lazy_result = dask.delayed(self.process_df)(df)
-          lazy_results.append(lazy_result)
-    results = dask.compute(*lazy_results)
-    print(*results, sep='\n')
-    
+      print('Now reading opinions')
+      self.process_df(df, client)
     end = time.perf_counter()
     print((end-start)/60)
 
