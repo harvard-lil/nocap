@@ -2,17 +2,24 @@
 import pandas as pd
 import numpy as np
 import dask
+import dask.bag as db
 from dask.distributed import Client, progress
 import dask.dataframe as dd
+from dask.distributed import as_completed
 import multiprocessing as mp
 import time
 import timeit
 import os
 import click
 import re
+import logging
+log = logging.getLogger()
+log.setLevel(logging.DEBUG)
+import pdb
 
 class NoCap:
   def __init__(self, opinions_fn, opinion_clusters_fn, courts_fn, dockets_fn, citation_fn):
+    log.debug('Initializing')
     self._opinions_fn = opinions_fn
     self._opinion_clusters_fn = opinion_clusters_fn
     self._courts_fn = courts_fn
@@ -59,8 +66,9 @@ class NoCap:
     start = time.perf_counter()
     file_size = os.path.getsize(filename)
     file_size_gb = round(file_size/10**9, 2)
-    print(f'Importing {filename} as a dataframe')
-    print("File Size is :", file_size_gb, "GB")
+    log.debug(f'Importing {filename} as a dataframe')
+    msg = f"File Size is : {str(file_size_gb)} GB"
+    log.debug(msg)
     df = None
     if file_size_gb > max_gb:
         df = pd.concat(self.read_csv_as_dfs(filename, num_dfs=10**5, max_rows=10**7, 
@@ -68,7 +76,7 @@ class NoCap:
     else:
         df = pd.read_csv(filename, dtype=dtype, parse_dates=parse_dates, usecols=usecols, index_col=index_col)
     end = time.perf_counter()
-    print(f'{filename} read in {int((end-start)/60)} minutes')
+    log.debug(f'{filename} read in {str(int((end-start)/60))} minutes')
     return df
 
   # get cluster client
@@ -81,12 +89,12 @@ class NoCap:
   # accepts a series -- a row from a dataframe
   def get_opinion_text(self, opinion):
     text = ''
-    pt = opinion.plain_text
-    hl = opinion.html
-    hlb = opinion.html_lawbox
-    hlc = opinion.html_columbia
-    xh = opinion.xml_harvard
-    hla = opinion.html_anon_2020
+    pt = opinion['plain_text']
+    hl = opinion['html']
+    hlb = opinion['html_lawbox']
+    hlc = opinion['html_columbia']
+    xh = opinion['xml_harvard']
+    hla = opinion['html_anon_2020']
     
     if isinstance(pt, str):
         text = pt
@@ -152,6 +160,13 @@ class NoCap:
       'date_terminated': 'string'
       } 
 
+      log.debug('importing dockets')
+      file_size = os.path.getsize(self._opinions_fn)
+      file_size_gb = round(file_size/10**9, 2)
+      log.debug(f'Importing {fn} as a Dask Dataframe')
+      msg = f"File Size is : {str(file_size_gb)} GB"
+      log.debug(msg)
+
       return dd.read_csv(fn or self._dockets_fn, dtype=my_types, usecols=['court_id', 'id', 'date_terminated'],
                          blocksize="32MB")
 
@@ -177,91 +192,88 @@ class NoCap:
       
   # process
   def process_row(self, opinion) -> dict:
-    dockets = self.get_dockets_df()
-    courts = self.get_courts_df()
-    citations = self.get_citation_df()
-    opinion_id = opinion['id']
-    cluster_id = opinion['cluster_id']
+    log.debug('process_row')
+    #pdb.set_trace()
+    #print(opinion['id'])
+    #return opinion['id']
+    return opinion
+    #dockets = self.get_dockets_df()
+    #courts = self.get_courts_df()
+    #citations = self.get_citation_df()
+    #opinion_id = opinion['id']
+    #cluster_id = opinion['cluster_id']
 
     # get each corresponding row from clusters, dockets, courts based on opinion id
-    cluster_row: self.DataFrame = self.df_row_by_value(self.get_opinions_cluster_df(), 'id', cluster_id)
+    #cluster_row: self.DataFrame = self.df_row_by_value(self.get_opinions_cluster_df(), 'id', cluster_id)
 
     # get corresponding row from docket df based on cluster opinion id
-    docket_id = int(cluster_row['docket_id'])
-    docket_row = dockets[dockets['id'] == docket_id].compute()
+    #docket_id = int(cluster_row['docket_id'])
+    #docket_row = dockets[dockets['id'] == docket_id].compute()
 
     # return early if there's 
-    if len(docket_row.columns) == 0:
-        return 
-    cid = list(docket_row['court_id'])[0]
-    court_row: self.DataFrame = courts[courts['id'] == cid]
-    if court_row.empty:
-        return
+    #if len(docket_row.columns) == 0:
+    #    return 
+    #cid = list(docket_row['court_id'])[0]
+    #court_row: self.DataFrame = courts[courts['id'] == cid]
+    #if court_row.empty:
+    #    return
 
     # get opinions cited to
-    citation_info = self.get_citations(opinion_id, citations)
-    cites_to = citation_info['cites_to']
-    cited_by = citation_info['cited_by']
+    # citation_info = self.get_citations(opinion_id, citations)
+    #cites_to = citation_info['cites_to']
+    #cited_by = citation_info['cited_by']
 
     #judges
-    judges = cluster_row.judges
-    judge_list = [
-        judge
-        for judge in
-            (judges.iloc[0].split(',') if judges.notna().bool() else [])
-        if not re.match('[cj]?j\.', judge)
-    ]
-        
-    # sometimes date_terminated may be missing and recorded as NaN
-    date_terminated = list(docket_row['date_terminated'])[0]
+    #judges = cluster_row.judges
+    #jude_list = [
+    #    judge
+    #    for judge in
+    #        (judges.iloc[0].split(',') if judges.notna().bool() else [])
+    #    if not re.match('[cj]?j\.', judge)
+    #]
+    #    
+    ## sometimes date_terminated may be missing and recorded as NaN
+    #date_terminated = list(docket_row['date_terminated'])[0]
 
-    obj = {
-        'id': cluster_id,
-        'url': opinion['download_url'],
-        'name_abbreviation': cluster_row.case_name.iloc[0],
-        'name' : cluster_row.case_name_full.iloc[0],
-        'decision_date': date_terminated,
-        'docket_number' : cluster_row.docket_id.iloc[0],
-        'citations' : cited_by,
-        'cites_to' : cites_to,
-        'court' : {'name': court_row.full_name.iloc[0]},
-        'jurisdiction' : {'name': court_row.jurisdiction.iloc[0]},
-        'casebody' : {'data': {
-            'judges': judge_list,
-            'head_matter':'', #Ask CL about copyright,
-            'opinions': [{
-                'text': self.get_opinion_text(opinion), 
-                'author': '', 'type': ''}]
-            }
-        }
-    }
-    return obj
+    #obj = {
+    #    'id': cluster_id,
+    #    'url': opinion['download_url'],
+    #    'name_abbreviation': cluster_row.case_name.iloc[0],
+    #    'name' : cluster_row.case_name_full.iloc[0],
+    #    'decision_date': date_terminated,
+    #    'docket_number' : cluster_row.docket_id.iloc[0],
+    #    'citations' : cited_by,
+    #    'cites_to' : cites_to,
+    #    'court' : {'name': court_row.full_name.iloc[0]},
+    #    'jurisdiction' : {'name': court_row.jurisdiction.iloc[0]},
+    #    'casebody' : {'data': {
+    #        'judges': judge_list,
+    #        'head_matter':'', #Ask CL about copyright,
+    #        'opinions': [{
+    #            'text': self.get_opinion_text(opinion), 
+    #            'author': '', 'type': ''}]
+    #        }
+    #    }
+    #}
+    #return obj
 
-  def _taxonify(self, df):
-    df[[
-            'id',
-            'local_path',
-            'download_url',
-            'cluster_id',
-            'xml_harvard',
-            'plain_text',
-            'html',
-            'html_lawbox',
-            'html_columbia',
-            'html_anon_2020'
-          ]].apply(
-            lambda row: print(f'{self.process_row(row)}\n'),
-            axis=1,
-          )  
-
-  def process_df(self, df, client):
-    futures = []
-    for index, row in df.iterrows():
-      self.process_row(row)
-      future = client.submit(self.process_row, row)
-      futures.append(future)
-    #return client.gather(futures)
+  def process_df(self, df):
+    log.debug('process_df: client.map')
+    df_dict = df.to_dict('records')
+    b = db.from_sequence(df_dict, npartitions=10)
+    results = db.map(self.process_row, b).compute()
+    print(results)
+    log.debug('printing mini opinion dataframe as a dict')
+    #log.debug(df_dict)
+    #pdb.set_trace()
+    #futures = client.map(self.process_row, df)
     
+    #for future, result in as_completed(futures, with_results=True):
+    print(results)
+
+  def test(self):
+    print('test')
+  
   def start(self):
     start = time.perf_counter()
     max_rows = 50
@@ -291,14 +303,15 @@ class NoCap:
           ]
     file_size = os.path.getsize(self._opinions_fn)
     file_size_gb = round(file_size/10**9, 2)
-    print(f'Importing {self._opinions_fn} as a dataframe')
-    print("File Size is :", file_size_gb, "GB")
-    client = Client(threads_per_worker=4, n_workers = int(mp.cpu_count() * .35))
+    log.debug(f'Importing {self._opinions_fn} as a dataframe')
+    msg = f"File Size is : {str(file_size_gb)} GB"
+    log.debug(msg)
+    #client = Client(threads_per_worker=4, n_workers = int(mp.cpu_count() * .40))
     for df in pd.read_csv(self._opinions_fn, chunksize=max_rows, dtype=opinion_dtypes, parse_dates=None, usecols=usecols):
-      print('Now reading opinions')
-      self.process_df(df, client)
+      log.debug(f'Now reading {len(df)} opinions')
+      self.process_df(df)
     end = time.perf_counter()
-    print((end-start)/60)
+    log.debug((end-start)/60)
 
 if __name__ == '__main__':
   NoCap.cli()
