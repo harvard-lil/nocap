@@ -15,7 +15,8 @@ import re
 import logging
 log = logging.getLogger()
 log.setLevel(logging.DEBUG)
-import pdb
+import json
+import csv
 
 class NoCap:
   def __init__(self, opinions_fn, opinion_clusters_fn, courts_fn, dockets_fn, citation_fn):
@@ -29,7 +30,7 @@ class NoCap:
     self._df_courts = self.init_courts_df()
     self._df_opinion_clusters = self.init_opinion_clusters_df()
     self._df_citation = self.init_citation_df()
-    self._df_dockets = self.init_dockets_df()
+    self._df_dockets = self.init_dockets_dict() # self.init_dockets_df()
 
     #self._df_opinions = self.init_opinions_df()
     self.DataFrame = pd.core.frame.DataFrame
@@ -153,6 +154,15 @@ class NoCap:
       }
       return self.csv_to_df(fn or self._opinion_clusters_fn, dtype=dtypes, usecols=usecols)
 
+  # initialize dockets dict
+  def init_dockets_dict(self, fn=None):
+    dockets_dict = {}
+    with open(fn or self._dockets_fn) as dockets:
+        reader = csv.DictReader(dockets)
+        for row in reader:
+            dockets_dict[int(row['id'])] = row['court_id'], row['date_terminated']
+    return dockets_dict
+
   # initialize dockets df
   def init_dockets_df(self, fn=None):
       my_types = {
@@ -193,75 +203,71 @@ class NoCap:
   # process
   def process_row(self, opinion) -> dict:
     log.debug('process_row')
-    #pdb.set_trace()
-    #print(opinion['id'])
-    #return opinion['id']
-    return opinion
-    #dockets = self.get_dockets_df()
-    #courts = self.get_courts_df()
-    #citations = self.get_citation_df()
-    #opinion_id = opinion['id']
-    #cluster_id = opinion['cluster_id']
+    dockets = self.get_dockets_dict() # self.get_dockets_df()
+    courts = self.get_courts_df()
+    citations = self.get_citation_df()
+    opinion_id = opinion['id']
+    cluster_id = opinion['cluster_id']
 
     # get each corresponding row from clusters, dockets, courts based on opinion id
-    #cluster_row: self.DataFrame = self.df_row_by_value(self.get_opinions_cluster_df(), 'id', cluster_id)
+    cluster_row: self.DataFrame = self.df_row_by_value(self.get_opinions_cluster_df(), 'id', cluster_id)
 
     # get corresponding row from docket df based on cluster opinion id
-    #docket_id = int(cluster_row['docket_id'])
-    #docket_row = dockets[dockets['id'] == docket_id].compute()
+    docket_id = int(cluster_row['docket_id'])
+    docket_row: Dict = dockets[docket_id] #dockets[dockets['id'] == docket_id].compute()
 
     # return early if there's 
-    #if len(docket_row.columns) == 0:
-    #    return 
-    #cid = list(docket_row['court_id'])[0]
-    #court_row: self.DataFrame = courts[courts['id'] == cid]
-    #if court_row.empty:
-    #    return
+    if not docket_row:
+        return 
+    cid = docket_row['court_id']
+    court_row: self.DataFrame = courts[courts['id'] == cid]
+    if court_row.empty:
+        return
 
     # get opinions cited to
-    # citation_info = self.get_citations(opinion_id, citations)
-    #cites_to = citation_info['cites_to']
-    #cited_by = citation_info['cited_by']
+    citation_info = self.get_citations(opinion_id, citations)
+    cites_to = citation_info['cites_to']
+    cited_by = citation_info['cited_by']
 
-    #judges
-    #judges = cluster_row.judges
-    #jude_list = [
-    #    judge
-    #    for judge in
-    #        (judges.iloc[0].split(',') if judges.notna().bool() else [])
-    #    if not re.match('[cj]?j\.', judge)
-    #]
+    # judges
+    judges = cluster_row.judges
+    judge_list = [
+        judge
+        for judge in
+            (judges.iloc[0].split(',') if judges.notna().bool() else [])
+        if not re.match('[cj]?j\.', judge)
+    ]
     #    
     ## sometimes date_terminated may be missing and recorded as NaN
-    #date_terminated = list(docket_row['date_terminated'])[0]
+    date_terminated = docket_row['date_terminated']
 
-    #obj = {
-    #    'id': cluster_id,
-    #    'url': opinion['download_url'],
-    #    'name_abbreviation': cluster_row.case_name.iloc[0],
-    #    'name' : cluster_row.case_name_full.iloc[0],
-    #    'decision_date': date_terminated,
-    #    'docket_number' : cluster_row.docket_id.iloc[0],
-    #    'citations' : cited_by,
-    #    'cites_to' : cites_to,
-    #    'court' : {'name': court_row.full_name.iloc[0]},
-    #    'jurisdiction' : {'name': court_row.jurisdiction.iloc[0]},
-    #    'casebody' : {'data': {
-    #        'judges': judge_list,
-    #        'head_matter':'', #Ask CL about copyright,
-    #        'opinions': [{
-    #            'text': self.get_opinion_text(opinion), 
-    #            'author': '', 'type': ''}]
-    #        }
-    #    }
-    #}
-    #return obj
+    obj = {
+        'id': cluster_id,
+        'url': opinion['download_url'],
+        'name_abbreviation': cluster_row.case_name.iloc[0],
+        'name' : cluster_row.case_name_full.iloc[0],
+        'decision_date': date_terminated,
+        'docket_number' : cluster_row.docket_id.iloc[0],
+        'citations' : cited_by,
+        'cites_to' : cites_to,
+        'court' : {'name': court_row.full_name.iloc[0]},
+        'jurisdiction' : {'name': court_row.jurisdiction.iloc[0]},
+        'casebody' : {'data': {
+            'judges': judge_list,
+            'head_matter':'', #Ask CL about copyright,
+            'opinions': [{
+                'text': self.get_opinion_text(opinion), 
+                'author': '', 'type': ''}]
+            }
+        }
+    }
+    return obj
 
   def process_df(self, df):
     log.debug('process_df: client.map')
     df_dict = df.to_dict('records')
     b = db.from_sequence(df_dict, npartitions=10)
-    results = db.map(self.process_row, b).compute()
+    results = db.map(self.process_row, b).map(json.dumps).to_textfiles('data/*.jsonl')
     print(results)
     log.debug('printing mini opinion dataframe as a dict')
     #log.debug(df_dict)
@@ -269,7 +275,6 @@ class NoCap:
     #futures = client.map(self.process_row, df)
     
     #for future, result in as_completed(futures, with_results=True):
-    print(results)
 
   def test(self):
     print('test')
