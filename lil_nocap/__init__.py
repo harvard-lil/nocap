@@ -1,5 +1,6 @@
 #!/usr/bin/env 
 import pandas as pd
+from pandas._libs.missing import NAType
 import numpy as np
 import dask
 import dask.bag as db
@@ -16,7 +17,6 @@ import logging
 log = logging.getLogger()
 log.setLevel(logging.DEBUG)
 import json
-import csv
 
 class NoCap:
   def __init__(self, opinions_fn, opinion_clusters_fn, courts_fn, dockets_fn, citation_fn):
@@ -30,7 +30,7 @@ class NoCap:
     self._df_courts = self.init_courts_df()
     self._df_opinion_clusters = self.init_opinion_clusters_df()
     self._df_citation = self.init_citation_df()
-    self._df_dockets = self.init_dockets_dict() # self.init_dockets_df()
+    self._df_dockets = self.init_dockets_df()
 
     #self._df_opinions = self.init_opinions_df()
     self.DataFrame = pd.core.frame.DataFrame
@@ -154,15 +154,6 @@ class NoCap:
       }
       return self.csv_to_df(fn or self._opinion_clusters_fn, dtype=dtypes, usecols=usecols)
 
-  # initialize dockets dict
-  def init_dockets_dict(self, fn=None):
-    dockets_dict = {}
-    with open(fn or self._dockets_fn) as dockets:
-        reader = csv.DictReader(dockets)
-        for row in reader:
-            dockets_dict[int(row['id'])] = row['court_id'], row['date_terminated']
-    return dockets_dict
-
   # initialize dockets df
   def init_dockets_df(self, fn=None):
       my_types = {
@@ -199,11 +190,23 @@ class NoCap:
 
   def get_opinions_df(self):
       pass
-      
+
+  class NpEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        if isinstance(obj, np.floating):
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        if isinstance(obj, NAType):
+            return ''
+        return super(NpEncoder, self).default(obj)
+  
   # process
   def process_row(self, opinion) -> dict:
     log.debug('process_row')
-    dockets = self.get_dockets_dict() # self.get_dockets_df()
+    dockets = self.get_dockets_df()
     courts = self.get_courts_df()
     citations = self.get_citation_df()
     opinion_id = opinion['id']
@@ -214,12 +217,12 @@ class NoCap:
 
     # get corresponding row from docket df based on cluster opinion id
     docket_id = int(cluster_row['docket_id'])
-    docket_row: Dict = dockets[docket_id] #dockets[dockets['id'] == docket_id].compute()
+    docket_row = dockets[dockets['id'] == docket_id].compute()
 
     # return early if there's 
-    if not docket_row:
+    if len(docket_row.columns) == 0:
         return 
-    cid = docket_row['court_id']
+    cid = list(docket_row['court_id'])[0]
     court_row: self.DataFrame = courts[courts['id'] == cid]
     if court_row.empty:
         return
@@ -239,14 +242,16 @@ class NoCap:
     ]
     #    
     ## sometimes date_terminated may be missing and recorded as NaN
-    date_terminated = docket_row['date_terminated']
+    date_terminated = list(docket_row['date_terminated'])[0]
+    ## download url may also be missing
+    url = '' # opinion['download_url']
 
     obj = {
         'id': cluster_id,
-        'url': opinion['download_url'],
+        'url': url,
         'name_abbreviation': cluster_row.case_name.iloc[0],
         'name' : cluster_row.case_name_full.iloc[0],
-        'decision_date': date_terminated,
+        'decision_date': '', #date_terminated,
         'docket_number' : cluster_row.docket_id.iloc[0],
         'citations' : cited_by,
         'cites_to' : cites_to,
@@ -261,27 +266,23 @@ class NoCap:
             }
         }
     }
-    return obj
+    return json.dumps(obj, cls=self.NpEncoder)
 
   def process_df(self, df):
     log.debug('process_df: client.map')
+    log.debug('printing mini opinion dataframe as a dict')
     df_dict = df.to_dict('records')
     b = db.from_sequence(df_dict, npartitions=10)
-    results = db.map(self.process_row, b).map(json.dumps).to_textfiles('data/*.jsonl')
-    print(results)
-    log.debug('printing mini opinion dataframe as a dict')
-    #log.debug(df_dict)
-    #pdb.set_trace()
-    #futures = client.map(self.process_row, df)
+    print(list(map(self.process_row, df_dict)))
+    #results = db.map(self.process_row, b).to_textfiles('data/*.jsonl')
+    #print(results)
     
-    #for future, result in as_completed(futures, with_results=True):
-
   def test(self):
     print('test')
   
   def start(self):
     start = time.perf_counter()
-    max_rows = 50
+    max_rows = 10
     opinion_dtypes = {
         'download_url': 'string',
         'local_path':'string',
@@ -314,6 +315,7 @@ class NoCap:
     #client = Client(threads_per_worker=4, n_workers = int(mp.cpu_count() * .40))
     for df in pd.read_csv(self._opinions_fn, chunksize=max_rows, dtype=opinion_dtypes, parse_dates=None, usecols=usecols):
       log.debug(f'Now reading {len(df)} opinions')
+      
       self.process_df(df)
     end = time.perf_counter()
     log.debug((end-start)/60)
