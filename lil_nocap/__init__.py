@@ -17,6 +17,7 @@ import logging
 log = logging.getLogger()
 log.setLevel(logging.DEBUG)
 import json
+import csv
 
 class NoCap:
   def __init__(self, opinions_fn, opinion_clusters_fn, courts_fn, dockets_fn, citation_fn):
@@ -30,7 +31,7 @@ class NoCap:
     self._df_courts = self.init_courts_df()
     self._df_opinion_clusters = self.init_opinion_clusters_df()
     self._df_citation = self.init_citation_df()
-    self._df_dockets = self.init_dockets_df()
+    self._df_dockets = self.init_dockets_dict() # self.init_dockets_df()
 
     #self._df_opinions = self.init_opinions_df()
     self.DataFrame = pd.core.frame.DataFrame
@@ -171,6 +172,28 @@ class NoCap:
       return dd.read_csv(fn or self._dockets_fn, dtype=my_types, usecols=['court_id', 'id', 'date_terminated'],
                          blocksize="32MB")
 
+
+  # initialize dockets dict
+  def init_dockets_dict(self, fn=None):
+    fn = fn or self._dockets_fn
+    file_size = os.path.getsize(fn)
+    file_size_gb = round(file_size/10**9, 2)
+    log.debug(f'Importing {fn} as a Dict')
+    msg = f"File Size is : {str(file_size_gb)} GB"
+    log.debug(msg)
+
+    start = time.perf_counter()
+    dockets_dict = {}
+    with open(fn) as dockets:
+        reader = csv.DictReader(dockets)
+        for row in reader:
+            dockets_dict[int(row['id'])] = row['court_id'], row['date_terminated']
+
+    end = time.perf_counter()
+    log.debug(f'{fn} read in {str(int((end-start)/60))} minutes')
+
+    return dockets_dict
+  
   # initialize citation map df
   def init_citation_df(self, fn=None):
       return self.csv_to_df(fn or self._citation_fn)
@@ -217,12 +240,13 @@ class NoCap:
 
     # get corresponding row from docket df based on cluster opinion id
     docket_id = int(cluster_row['docket_id'])
-    docket_row = dockets[dockets['id'] == docket_id].compute()
-
+    #docket_row = dockets[dockets['id'] == docket_id].compute()
+    docket_row = dockets[docket_id]
+   
     # return early if there's 
-    if len(docket_row.columns) == 0:
-        return 
-    cid = list(docket_row['court_id'])[0]
+    if not docket_row:
+        return
+    cid = docket_row[0]
     court_row: self.DataFrame = courts[courts['id'] == cid]
     if court_row.empty:
         return
@@ -242,7 +266,7 @@ class NoCap:
     ]
     #    
     ## sometimes date_terminated may be missing and recorded as NaN
-    date_terminated = list(docket_row['date_terminated'])[0]
+    date_terminated = docket_row[1]
     ## download url may also be missing
     url = '' # opinion['download_url']
 
@@ -272,17 +296,18 @@ class NoCap:
     log.debug('process_df: client.map')
     log.debug('printing mini opinion dataframe as a dict')
     df_dict = df.to_dict('records')
-    b = db.from_sequence(df_dict, npartitions=10)
-    print(list(map(self.process_row, df_dict)))
-    #results = db.map(self.process_row, b).to_textfiles('data/*.jsonl')
-    #print(results)
+    
+    b = db.from_sequence(df_dict, npartitions=int(mp.cpu_count() * .80))
+    #print(list(map(self.process_row, df_dict)))
+    results = db.map(self.process_row, b).to_textfiles('data/*.jsonl')
+    print(results)
     
   def test(self):
     print('test')
   
   def start(self):
     start = time.perf_counter()
-    max_rows = 10
+    max_rows = 1000
     opinion_dtypes = {
         'download_url': 'string',
         'local_path':'string',
