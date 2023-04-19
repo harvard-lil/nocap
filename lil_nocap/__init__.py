@@ -300,7 +300,7 @@ class NoCap:
     b = db.from_sequence(df_dict, npartitions=int(mp.cpu_count() * .80))
     #print(list(map(self.process_row, df_dict)))
     results = db.map(self.process_row, b).to_textfiles('data/*.jsonl')
-    print(results)
+    #print(results)
     
   def test(self):
     print('test')
