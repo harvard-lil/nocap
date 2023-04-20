@@ -18,6 +18,7 @@ log = logging.getLogger()
 log.setLevel(logging.DEBUG)
 import json
 import csv
+import pickle
 
 class NoCap:
   def __init__(self, opinions_fn, opinion_clusters_fn, courts_fn, dockets_fn, citation_fn):
@@ -31,7 +32,7 @@ class NoCap:
     self._df_courts = self.init_courts_df()
     self._df_opinion_clusters = self.init_opinion_clusters_df()
     self._df_citation = self.init_citation_df()
-    self._df_dockets = self.init_dockets_dict() # self.init_dockets_df()
+    self._df_dockets = self.get_pickled_docket() #self.init_dockets_dict() # self.init_dockets_df()
 
     #self._df_opinions = self.init_opinions_df()
     self.DataFrame = pd.core.frame.DataFrame
@@ -145,6 +146,23 @@ class NoCap:
 
       return self.csv_to_df(fn or self._opinions_fn, dtype=opinion_dtypes, index_col='id')
 
+  def init_opinion_clusters_dict(self, fn=None):
+    fn = fn or self._opinion_clusters_fn
+    file_size = os.path.getsize(fn)
+    file_size_gb = round(file_size/10**9, 2)
+    log.debug(f'Importing {fn} as a Dict')
+    msg = f"File Size is : {str(file_size_gb)} GB"
+    log.debug(msg)
+
+    start = time.perf_counter()
+    cluster_dict = {}
+    with open(fn) as dockets:
+        reader = csv.DictReader(dockets)
+        for row in reader:
+            cluster_dict[int(row['id'])] = row['judges'], row['docket_id'], row['case_name'], row['case_name_full']
+    end = time.perf_counter()
+    log.debug(f'{fn} read in {str(int((end-start)/60))} minutes')
+
   # initialize opinion clusters df
   def init_opinion_clusters_df(self, fn=None):
       usecols = ['id', 'judges', 'docket_id', 'case_name', 'case_name_full']
@@ -214,6 +232,12 @@ class NoCap:
   def get_opinions_df(self):
       pass
 
+  def get_pickled_docket(self, fn='docket'):
+    file = open('docket', 'rb')
+    self._df_dockets = pickle.load(file)
+    file.close()
+    return self._df_dockets
+   
   class NpEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, np.integer):
@@ -225,28 +249,65 @@ class NoCap:
         if isinstance(obj, NAType):
             return ''
         return super(NpEncoder, self).default(obj)
-  
-  # process
-  def process_row(self, opinion) -> dict:
-    log.debug('process_row')
+
+
+  ## get cluster_row
+  def get_cluster_row(self, opinion):
+    # get each corresponding row from clusters, dockets, courts based on opinion id
+    cluster_id = opinion['cluster_id']
+    return self.df_row_by_value(self.get_opinions_cluster_df(), 'id', cluster_id)
+   
+
+  ## Process Opinion Dataframe
+  def process_df(self, df):
+    log.debug('process_df: client.map')
+    log.debug('printing mini opinion dataframe as a dict')
+    df_dict = df.to_dict('records')
+    npartitions = mp.cpu_count()
+    bag_opinions = db.from_sequence(df_dict, npartitions=npartitions)
+    
+    # get cluster rows
+    log.debug('getting cluster rows')
+    cluster_rows = list(map(self.get_cluster_row, df_dict))
+    bag_clusters = db.from_sequence(cluster_rows, npartitions=npartitions)
+
+    # dockets
+    log.debug('getting dockets')
     dockets = self.get_dockets_df()
+    # get the docekt_id as an int from each cluster_row in orderd as a key to hash into the dockets dict 
+    docket_rows = list(map(lambda x: dockets[int(x['docket_id'])], cluster_rows))
+    bag_dockets = db.from_sequence(docket_rows, npartitions=npartitions)
+
+
+    # process row
+    log.debug('running map(process_row) in parallel')
+    # , bag_clusters, bag_dockets
+    # db.map(print, b).compute()
+    #import pdb; pdb.set_trace() 
+
+    #docket_obj = list(map(
+    # results = list(map(self.process_row, df_dict, cluster_rows, docket_rows))
+    db.map(self.process_row, bag_opinions, bag_clusters, bag_dockets).to_textfiles('data/nocap/nc*.jsonl')
+    # with open('nocap.jsonl', 'a') as f:
+    #  f.write(f'{results}\n')
+    # print(results)
+ 
+  ## Helper function to process each row in the opinions dataframe
+  # This is a helper function that connects opinions to courts, dockets, citations etc.,
+  def process_row(self, opinion, cluster_row, docket_row) -> dict:
+    
     courts = self.get_courts_df()
     citations = self.get_citation_df()
     opinion_id = opinion['id']
     cluster_id = opinion['cluster_id']
-
-    # get each corresponding row from clusters, dockets, courts based on opinion id
-    cluster_row: self.DataFrame = self.df_row_by_value(self.get_opinions_cluster_df(), 'id', cluster_id)
-
+    
     # get corresponding row from docket df based on cluster opinion id
-    docket_id = int(cluster_row['docket_id'])
-    #docket_row = dockets[dockets['id'] == docket_id].compute()
-    docket_row = dockets[docket_id]
-   
+       
     # return early if there's 
     if not docket_row:
         return
-    cid = docket_row[0]
+    court_id_index = 0
+    cid = docket_row[court_id_index]
     court_row: self.DataFrame = courts[courts['id'] == cid]
     if court_row.empty:
         return
@@ -266,7 +327,8 @@ class NoCap:
     ]
     #    
     ## sometimes date_terminated may be missing and recorded as NaN
-    date_terminated = docket_row[1]
+    date_terminated_index = 1
+    date_terminated = docket_row[date_terminated_index]
     ## download url may also be missing
     url = '' # opinion['download_url']
 
@@ -292,22 +354,13 @@ class NoCap:
     }
     return json.dumps(obj, cls=self.NpEncoder)
 
-  def process_df(self, df):
-    log.debug('process_df: client.map')
-    log.debug('printing mini opinion dataframe as a dict')
-    df_dict = df.to_dict('records')
-    
-    b = db.from_sequence(df_dict, npartitions=int(mp.cpu_count() * .80))
-    #print(list(map(self.process_row, df_dict)))
-    results = db.map(self.process_row, b).to_textfiles('data/*.jsonl')
-    #print(results)
     
   def test(self):
     print('test')
   
   def start(self):
     start = time.perf_counter()
-    max_rows = 1000
+    max_rows = 50
     opinion_dtypes = {
         'download_url': 'string',
         'local_path':'string',
@@ -337,7 +390,8 @@ class NoCap:
     log.debug(f'Importing {self._opinions_fn} as a dataframe')
     msg = f"File Size is : {str(file_size_gb)} GB"
     log.debug(msg)
-    #client = Client(threads_per_worker=4, n_workers = int(mp.cpu_count() * .40))
+    # client = Client(threads_per_worker=4, n_workers = 1) #int(mp.cpu_count() * .30))
+    # client
     for df in pd.read_csv(self._opinions_fn, chunksize=max_rows, dtype=opinion_dtypes, parse_dates=None, usecols=usecols):
       log.debug(f'Now reading {len(df)} opinions')
       
