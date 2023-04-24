@@ -29,12 +29,12 @@ class NoCap:
     self._dockets_fn = dockets_fn
     self._citation_fn = citation_fn
 
-    self._df_courts = self.init_courts_df()
+    # if memory is < 32 GB use Dask for large files, otherwise use dicts
     self._df_opinion_clusters = self.init_opinion_clusters_df()
-    self._df_citation = self.init_citation_df()
     self._df_dockets = self.get_pickled_docket() #self.init_dockets_dict() # self.init_dockets_df()
+    self._df_courts = self.init_courts_df()
+    self._df_citation = self.init_citation_df()
 
-    #self._df_opinions = self.init_opinions_df()
     self.DataFrame = pd.core.frame.DataFrame
 
   @click.command()  
@@ -146,23 +146,6 @@ class NoCap:
 
       return self.csv_to_df(fn or self._opinions_fn, dtype=opinion_dtypes, index_col='id')
 
-  def init_opinion_clusters_dict(self, fn=None):
-    fn = fn or self._opinion_clusters_fn
-    file_size = os.path.getsize(fn)
-    file_size_gb = round(file_size/10**9, 2)
-    log.debug(f'Importing {fn} as a Dict')
-    msg = f"File Size is : {str(file_size_gb)} GB"
-    log.debug(msg)
-
-    start = time.perf_counter()
-    cluster_dict = {}
-    with open(fn) as dockets:
-        reader = csv.DictReader(dockets)
-        for row in reader:
-            cluster_dict[int(row['id'])] = row['judges'], row['docket_id'], row['case_name'], row['case_name_full']
-    end = time.perf_counter()
-    log.debug(f'{fn} read in {str(int((end-start)/60))} minutes')
-
   # initialize opinion clusters df
   def init_opinion_clusters_df(self, fn=None):
       usecols = ['id', 'judges', 'docket_id', 'case_name', 'case_name_full']
@@ -181,7 +164,7 @@ class NoCap:
       } 
 
       log.debug('importing dockets')
-      file_size = os.path.getsize(self._opinions_fn)
+      file_size = os.path.getsize(self._dockets_fn)
       file_size_gb = round(file_size/10**9, 2)
       log.debug(f'Importing {fn} as a Dask Dataframe')
       msg = f"File Size is : {str(file_size_gb)} GB"
@@ -229,6 +212,9 @@ class NoCap:
   def get_opinions_cluster_df(self):
       return self._df_opinion_clusters
 
+  def get_opinions_cluster_dict(self):
+      return self._cluster_dict
+
   def get_opinions_df(self):
       pass
 
@@ -256,6 +242,9 @@ class NoCap:
     # get each corresponding row from clusters, dockets, courts based on opinion id
     cluster_id = opinion['cluster_id']
     return self.df_row_by_value(self.get_opinions_cluster_df(), 'id', cluster_id)
+
+  def get_custer_dict_row(self, id):
+    return self._cluster_dic[id]
    
 
   ## Process Opinion Dataframe
@@ -265,7 +254,7 @@ class NoCap:
     df_dict = df.to_dict('records')
     npartitions = mp.cpu_count()
     bag_opinions = db.from_sequence(df_dict, npartitions=npartitions)
-    
+ 
     # get cluster rows
     log.debug('getting cluster rows')
     cluster_rows = list(map(self.get_cluster_row, df_dict))
@@ -345,7 +334,7 @@ class NoCap:
         'jurisdiction' : {'name': court_row.jurisdiction.iloc[0]},
         'casebody' : {'data': {
             'judges': judge_list,
-            'head_matter':'', #Ask CL about copyright,
+            'head_matter':'', 
             'opinions': [{
                 'text': self.get_opinion_text(opinion), 
                 'author': '', 'type': ''}]
