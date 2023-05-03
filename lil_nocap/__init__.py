@@ -17,12 +17,10 @@ log.setLevel(logging.DEBUG)
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import csv
+csv.field_size_limit(1_000_000)
 import pickle
 import bz2
-from pprint import pprint
-
-csv.field_size_limit(1_000_000)
-
+import threading
 
 class NoCap:
     def __init__(
@@ -39,7 +37,7 @@ class NoCap:
         self._df_opinion_clusters = self.init_opinion_clusters_dict(
             opinion_clusters_fn, "opinion_clusters.sqlite"
         )
-        self._df_citation = self.init_citation_df()
+        self.init_citation_dict() #self.init_citation_df()
         self._df_dockets = self.init_dockets_dict(dockets_fn, "dockets.sqlite")
 
         # self._df_opinions = self.init_opinions_df()
@@ -162,6 +160,9 @@ class NoCap:
         ].to_list()
         return {"cites_to": cites_to, "cited_by": cited_by}
 
+   #def get_citations(self, opinion_id, df_citations):
+       
+
     # initialize courts df
     def init_courts_df(self, fn=None):
         usecols = ["id", "full_name", "jurisdiction"]
@@ -229,7 +230,7 @@ class NoCap:
 
     @staticmethod
     def opinion_clusters_row_to_kv(row):
-        fields = ["judges", "docket_id", "case_name", "case_name_full"]
+        fields = ["judges", "docket_id", "case_name", "case_name_full", "headnotes"]
         return row["id"], {f: row[f] for f in fields}
 
     @staticmethod
@@ -266,6 +267,20 @@ class NoCap:
     # initialize citation map df
     def init_citation_df(self, fn=None):
         return self.csv_to_df(fn or self._citation_fn)
+
+    def init_citation_dict(self, fn=None):
+        start = time.perf_counter()
+        usecols = ['cited_opinion_id', 'citing_opinion_id']
+        log.debug('initializing citation csv to be a dict')
+        df_dict = self.csv_to_df(fn or self._citation_fn, usecols=usecols).to_dict("records")
+        self.cites_to = {}
+        self.cited_by = {}
+        list(map(lambda x: self.cites_to.setdefault(x['citing_opinion_id'], []).append(x['cited_opinion_id']), df_dict))
+        list(map(lambda x: self.cited_by.setdefault(x['cited_opinion_id'], []).append(x['citing_opinion_id']), df_dict))
+        log.debug('finished converting citation dataframe into a dict')
+        end = time.perf_counter()
+        log.debug((end - start) / 60)
+
 
     ## Getters
     def get_courts_df(self):
@@ -325,24 +340,16 @@ class NoCap:
 
         # process row
         log.debug("running map(process_row) in parallel")
-        # , bag_clusters, bag_dockets
-        # db.map(print, b).compute()
-        # import pdb; pdb.set_trace()
-
-        # docket_obj = list(map(
         return list(map(self.process_row, df_dict, cluster_rows, docket_rows))
 
     ## Helper function to process each row in the opinions dataframe
     # This is a helper function that connects opinions to courts, dockets, citations etc.,
     def process_row(self, opinion, cluster_row, docket_row) -> dict:
-
         courts = self.get_courts_df()
-        citations = self.get_citation_df()
         opinion_id = opinion["id"]
         cluster_id = opinion["cluster_id"]
 
         # get corresponding row from docket df based on cluster opinion id
-
         # return early if there's
         if not docket_row:
             return
@@ -352,9 +359,8 @@ class NoCap:
             return
 
         # get opinions cited to
-        citation_info = self.get_citations(opinion_id, citations)
-        cites_to = citation_info["cites_to"]
-        cited_by = citation_info["cited_by"]
+        cites_to = self.cites_to[opinion_id]
+        cited_by = self.cited_by[opinion_id]
 
         # judges
         judges = cluster_row["judges"]
@@ -383,7 +389,7 @@ class NoCap:
             "casebody": {
                 "data": {
                     "judges": judge_list,
-                    "head_matter": "",  # Ask CL about copyright,
+                    "head_matter": cluster_row['headnotes'],  # Ask CL about copyright,
                     "opinions": [
                         {
                             "text": self.get_opinion_text(opinion),
@@ -442,9 +448,10 @@ class NoCap:
 
         pbar = tqdm(desc="Processing opinions", smoothing=0)
 
-        N_WORKERS = 5
-        N_CHUNKS_PER_BATCH = 5
+        N_WORKERS = 16 
+        N_CHUNKS_PER_BATCH = 24
 
+        lock = threading.Lock()
         with ThreadPoolExecutor(max_workers=N_WORKERS) as executor:
             futures = []
             for i, df in enumerate(chunks):
@@ -457,10 +464,11 @@ class NoCap:
                         except Exception as exc:
                             log.exception(exc)
                         else:
-                            pprint(result[0])
+                             with lock:
+                                print(f'{result}\n')
                     futures = []
         end = time.perf_counter()
-        log.debug((end - start) / 60)
+        log.debug(f'Finished: {(end - start) / 60}')
 
 
 if __name__ == "__main__":
