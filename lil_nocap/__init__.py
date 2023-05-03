@@ -11,6 +11,8 @@ import logging
 from sqlitedict import SqliteDict
 from tqdm.auto import tqdm
 from pathlib import Path
+import multiprocessing as mp
+
 
 log = logging.getLogger()
 log.setLevel(logging.DEBUG)
@@ -150,15 +152,6 @@ class NoCap:
         elif isinstance(hla, str):
             text = hla
         return text
-
-    def get_citations(self, opinion_id, df_citations):
-        cites_to = df_citations[df_citations["citing_opinion_id"] == opinion_id][
-            "cited_opinion_id"
-        ].to_list()
-        cited_by = df_citations[df_citations["cited_opinion_id"] == opinion_id][
-            "citing_opinion_id"
-        ].to_list()
-        return {"cites_to": cites_to, "cited_by": cited_by}
 
    #def get_citations(self, opinion_id, df_citations):
        
@@ -359,8 +352,8 @@ class NoCap:
             return
 
         # get opinions cited to
-        cites_to = self.cites_to[opinion_id]
-        cited_by = self.cited_by[opinion_id]
+        cites_to = self.cites_to[opinion_id] if opinion_id in self.cites_to else []
+        cited_by = self.cited_by[opinion_id] if opinion_id in self.cited_by else []
 
         # judges
         judges = cluster_row["judges"]
@@ -389,7 +382,7 @@ class NoCap:
             "casebody": {
                 "data": {
                     "judges": judge_list,
-                    "head_matter": cluster_row['headnotes'],  # Ask CL about copyright,
+                    "head_matter": cluster_row['headnotes'],
                     "opinions": [
                         {
                             "text": self.get_opinion_text(opinion),
@@ -402,12 +395,9 @@ class NoCap:
         }
         return json.dumps(obj, cls=self.NpEncoder)
 
-    def test(self):
-        print("test")
-
     def start(self):
         start = time.perf_counter()
-        max_rows = 1_000
+        max_rows = 10_000
         opinion_dtypes = {
             "download_url": "string",
             "local_path": "string",
@@ -448,8 +438,9 @@ class NoCap:
 
         pbar = tqdm(desc="Processing opinions", smoothing=0)
 
-        N_WORKERS = 16 
-        N_CHUNKS_PER_BATCH = 24
+        N_WORKERS = mp.cpu_count() 
+
+        N_CHUNKS_PER_BATCH = int(N_WORKERS * 1.5)
 
         lock = threading.Lock()
         with ThreadPoolExecutor(max_workers=N_WORKERS) as executor:
@@ -465,7 +456,8 @@ class NoCap:
                             log.exception(exc)
                         else:
                              with lock:
-                                print(f'{result}\n')
+                                with open('nocap_opinions.jsonl', 'a') as file:
+                                  file.write(join(result))
                     futures = []
         end = time.perf_counter()
         log.debug(f'Finished: {(end - start) / 60}')
