@@ -397,7 +397,7 @@ class NoCap:
 
     def start(self):
         start = time.perf_counter()
-        max_rows = 10_000
+        max_rows = 1_000
         opinion_dtypes = {
             "download_url": "string",
             "local_path": "string",
@@ -438,9 +438,9 @@ class NoCap:
 
         pbar = tqdm(desc="Processing opinions", smoothing=0)
 
-        N_WORKERS = mp.cpu_count() 
+        N_WORKERS = max_rows / mp.cpu_count()
 
-        N_CHUNKS_PER_BATCH = int(N_WORKERS * 1.5)
+        N_CHUNKS_PER_BATCH = int(mp.cpu_count() * 1.5)
 
         lock = threading.Lock()
         with ThreadPoolExecutor(max_workers=N_WORKERS) as executor:
@@ -457,8 +457,7 @@ class NoCap:
                         else:
                              with lock:
                                 with open('nocap_opinions.jsonl', 'a') as file:
-                                  file.write(join(result))
-                    futures = []
+                                  file.write(f'{result}')
         end = time.perf_counter()
         log.debug(f'Finished: {(end - start) / 60}')
 
