@@ -393,7 +393,7 @@ class NoCap:
                 }
             },
         }
-        return json.dumps(obj, cls=self.NpEncoder)
+        return json.dumps(obj, cls=self.NpEncoder) + '\n'
 
     def start(self):
         start = time.perf_counter()
@@ -457,7 +457,8 @@ class NoCap:
                         else:
                              with lock:
                                 with open('nocap_opinions.jsonl', 'a') as file:
-                                  file.write(f'{result}')
+                                  for r in result:
+                                    file.writelines(f'{r}')
         end = time.perf_counter()
         log.debug(f'Finished: {(end - start) / 60}')
 
