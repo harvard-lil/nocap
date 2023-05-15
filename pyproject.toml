@@ -14,6 +14,7 @@ click = "^8.1.3"
 dask = {extras = ["dataframe"], version = "^2023.3.0"}
 sqlitedict = "^2.1.0"
 tqdm = "^4.65.0"
+lz4 = "^4.3.2"
 
 [build-system]
 requires = ["poetry-core"]
