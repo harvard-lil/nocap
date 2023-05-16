@@ -12,13 +12,13 @@ from sqlitedict import SqliteDict
 from tqdm.auto import tqdm
 from pathlib import Path
 import multiprocessing as mp
-
-
 log = logging.getLogger()
 log.setLevel(logging.DEBUG)
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import csv
+import string
+import random
 csv.field_size_limit(1_000_000)
 import pickle
 import bz2
@@ -398,7 +398,7 @@ class NoCap:
 
     def start(self):
         start = time.perf_counter()
-        max_rows = 1_000
+        max_rows = 10_000
         opinion_dtypes = {
             "download_url": "string",
             "local_path": "string",
@@ -439,7 +439,7 @@ class NoCap:
 
         pbar = tqdm(desc="Processing opinions", smoothing=0)
 
-        N_WORKERS = max_rows / mp.cpu_count()
+        N_WORKERS = max_rows / mp.cpu_count() / 2
 
         N_CHUNKS_PER_BATCH = int(mp.cpu_count() * 1.5)
 
@@ -457,6 +457,7 @@ class NoCap:
                             log.exception(exc)
                         else:
                              with lock:
+                                name = ''.join(random.choices(string.ascii_uppercase + string.digits, k=15))
                                 with lz4.frame.open('nocap_opinions.jsonl', 'a') as file:
                                   file.write(f'{result}'.encode())
 
