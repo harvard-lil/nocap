@@ -23,6 +23,7 @@ csv.field_size_limit(1_000_000)
 import pickle
 import bz2
 import threading
+import lz4.frame
 
 class NoCap:
     def __init__(
@@ -456,9 +457,9 @@ class NoCap:
                             log.exception(exc)
                         else:
                              with lock:
-                                with open('nocap_opinions.jsonl', 'a') as file:
-                                  for r in result:
-                                    file.writelines(f'{r}')
+                                with lz4.frame.open('nocap_opinions.jsonl', 'a') as file:
+                                  file.write(f'{result}'.encode())
+
         end = time.perf_counter()
         log.debug(f'Finished: {(end - start) / 60}')
 
