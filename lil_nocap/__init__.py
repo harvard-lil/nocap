@@ -64,6 +64,7 @@ class NoCap:
         parse_dates=None,
         usecols=None,
         index_col=None,
+        compression='infer',
     ):
         counter = 0
         dfs_opinions = []
@@ -74,6 +75,7 @@ class NoCap:
             parse_dates=parse_dates,
             usecols=usecols,
             index_col=index_col,
+            compression=compression,
         ):
             if counter >= num_dfs:
                 break
@@ -91,7 +93,8 @@ class NoCap:
         num_dfs=10**3,
         usecols=None,
         index_col=None,
-    ):
+	compression='infer',
+	):
         start = time.perf_counter()
         file_size = os.path.getsize(filename)
         file_size_gb = round(file_size / 10**9, 2)
@@ -109,6 +112,7 @@ class NoCap:
                     parse_dates=parse_dates,
                     usecols=usecols,
                     index_col=index_col,
+                    compression=compression,
                 )
             )
         else:
@@ -266,7 +270,7 @@ class NoCap:
         start = time.perf_counter()
         usecols = ['cited_opinion_id', 'citing_opinion_id']
         log.debug('initializing citation csv to be a dict')
-        df_dict = self.csv_to_df(fn or self._citation_fn, usecols=usecols).to_dict("records")
+        df_dict = self.csv_to_df(fn or self._citation_fn, usecols=usecols, compression='bz2').to_dict("records")
         self.cites_to = {}
         self.cited_by = {}
         list(map(lambda x: self.cites_to.setdefault(x['citing_opinion_id'], []).append(x['cited_opinion_id']), df_dict))
@@ -435,6 +439,7 @@ class NoCap:
             dtype=opinion_dtypes,
             parse_dates=None,
             usecols=usecols,
+            compression='bz2'
         )
 
         pbar = tqdm(desc="Processing opinions", smoothing=0)
@@ -457,8 +462,8 @@ class NoCap:
                             log.exception(exc)
                         else:
                              with lock:
-                                name = ''.join(random.choices(string.ascii_uppercase + string.digits, k=15))
-                                with lz4.frame.open('nocap_opinions.jsonl', 'a') as file:
+                                name = 'nocap'.join(random.choices(string.ascii_uppercase + string.digits, k=15))
+                                with lz4.frame.open(f'{name}_.jsonl', 'a') as file:
                                   file.write(f'{result}'.encode())
 
         end = time.perf_counter()
