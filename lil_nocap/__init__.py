@@ -41,7 +41,7 @@ class NoCap:
             opinion_clusters_fn, "opinion_clusters.sqlite"
         )
         self.init_citation_dict() #self.init_citation_df()
-        self._df_dockets = self.init_dockets_dict(dockets_fn, "dockets.sqlite")
+        self._df_dockets = self.init_dockets_dict(dockets_fn)
 
         # self._df_opinions = self.init_opinions_df()
         self.DataFrame = pd.core.frame.DataFrame
@@ -250,7 +250,13 @@ class NoCap:
             db.commit()
         return self.sqlitedict_reader(sql_fn)
 
-    def init_dockets_dict(self, fn, sql_fn, batch_size=1_000_000):
+    def init_dockets_dict(self, fn=None):
+      usecols = ['id', 'court_id', 'date_terminated']
+      dockets_dict = self.csv_to_df(fn, usecols=usecols, compression='bz2').to_dict("records")
+      return dockets_dict 
+
+
+    def init_dockets_sqlite(self, fn, sql_fn, batch_size=1_000_000):
         if not Path(sql_fn).exists():
             self.build_sqlitedict(fn, sql_fn, self.docket_row_to_kv, batch_size)
         return self.sqlitedict_reader(sql_fn)
