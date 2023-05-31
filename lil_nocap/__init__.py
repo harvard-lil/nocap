@@ -468,8 +468,8 @@ class NoCap:
                             log.exception(exc)
                         else:
                              with lock:
-                                name = 'nocap'.join(random.choices(string.ascii_uppercase + string.digits, k=15))
-                                with lz4.frame.open(f'{name}_.jsonl', 'a') as file:
+                                name = 'nc_'.join(random.choices(string.ascii_uppercase + string.digits, k=5))
+                                with lz4.frame.open(f'{name}_.jsonl.lz4', 'a') as file:
                                   file.write(f'{result}'.encode())
 
         end = time.perf_counter()
@@ -478,3 +478,4 @@ class NoCap:
 
 if __name__ == "__main__":
     NoCap.cli()
+
