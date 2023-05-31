@@ -252,7 +252,7 @@ class NoCap:
 
     def init_dockets_dict(self, fn=None):
       usecols = ['id', 'court_id', 'date_terminated']
-      dockets_dict = self.csv_to_df(fn, usecols=usecols, compression='bz2').to_dict("records")
+      dockets_dict = self.csv_to_df(fn, index_col='id', usecols=usecols, compression='bz2').to_dict()
       return dockets_dict 
 
 
@@ -340,7 +340,7 @@ class NoCap:
         log.debug("getting dockets")
         dockets = self.get_dockets_df()
         # get the docekt_id as an int from each cluster_row in orderd as a key to hash into the dockets dict
-        docket_rows = list(map(lambda x: dockets[int(x["docket_id"])], cluster_rows))
+        docket_rows = list(map(lambda x: {'court_id': dockets['court_id'][int(x['docket_id'])], 'date_terminated': dockets['date_terminated'][int(x['docket_id'])]}, cluster_rows))
 
         # process row
         log.debug("running map(process_row) in parallel")

@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "lil-nocap"
-version = "0.6.1"
+version = "0.6.2"
 description = "A package for downloading bulk files from courtlistener"
 authors = ["sabzo <sabelo@sabelo.io>"]
 license = "MIT"
