@@ -344,7 +344,8 @@ class NoCap:
 
         # process row
         log.debug("running map(process_row) in parallel")
-        return list(map(self.process_row, df_dict, cluster_rows, docket_rows))
+        results = list(map(self.process_row, df_dict, cluster_rows, docket_rows))
+        return json.dumps(results, cls=self.NpEncoder)
 
     ## Helper function to process each row in the opinions dataframe
     # This is a helper function that connects opinions to courts, dockets, citations etc.,
@@ -404,7 +405,7 @@ class NoCap:
                 }
             },
         }
-        return json.dumps(obj, cls=self.NpEncoder) + '\n'
+        return obj
 
     def start(self):
         start = time.perf_counter()
