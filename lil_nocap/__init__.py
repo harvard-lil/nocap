@@ -273,8 +273,8 @@ class NoCap:
         df_dict = self.csv_to_df(fn or self._citation_fn, usecols=usecols, compression='bz2').to_dict("records")
         self.cites_to = {}
         self.cited_by = {}
-        list(map(lambda x: self.cites_to.setdefault(x['citing_opinion_id'], []).append(x['cited_opinion_id']), df_dict))
-        list(map(lambda x: self.cited_by.setdefault(x['cited_opinion_id'], []).append(x['citing_opinion_id']), df_dict))
+        map(lambda x: self.cites_to.setdefault(x['citing_opinion_id'], []).append(x['cited_opinion_id']), df_dict)
+        map(lambda x: self.cited_by.setdefault(x['cited_opinion_id'], []).append(x['citing_opinion_id']), df_dict)
         log.debug('finished converting citation dataframe into a dict')
         end = time.perf_counter()
         log.debug((end - start) / 60)
@@ -462,8 +462,8 @@ class NoCap:
                             log.exception(exc)
                         else:
                              with lock:
-                                name = 'nocap'.join(random.choices(string.ascii_uppercase + string.digits, k=15))
-                                with lz4.frame.open(f'{name}_.jsonl', 'a') as file:
+                                name = 'nocap'.join(random.choices(string.ascii_uppercase + string.digits, k=5))
+                                with lz4.frame.open(f'output/{name}_.jsonl', 'a') as file:
                                   file.write(f'{result}'.encode())
 
         end = time.perf_counter()
