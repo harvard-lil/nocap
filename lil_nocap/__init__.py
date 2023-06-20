@@ -462,7 +462,7 @@ class NoCap:
                             log.exception(exc)
                         else:
                              with lock:
-                                name = 'nocap'.join(random.choices(string.ascii_uppercase + string.digits, k=5))
+                                name = ''.join(random.choices(string.ascii_lowercase, k=10))
                                 with lz4.frame.open(f'output/{name}_.jsonl', 'a') as file:
                                   file.write(f'{result}'.encode())
 
