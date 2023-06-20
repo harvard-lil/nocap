@@ -398,11 +398,11 @@ class NoCap:
                 }
             },
         }
-        return json.dumps(obj, cls=self.NpEncoder) + '\n'
+        return obj
 
     def start(self):
         start = time.perf_counter()
-        max_rows = 10_000
+        max_rows = 5_000
         opinion_dtypes = {
             "download_url": "string",
             "local_path": "string",
