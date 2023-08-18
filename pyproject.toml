@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "lil-nocap"
-version = "0.4.3"
+version = "0.6.3"
 description = "A package for downloading bulk files from courtlistener"
 authors = ["sabzo <sabelo@sabelo.io>"]
 license = "MIT"
@@ -12,10 +12,13 @@ pandas = "^1.5.3"
 numpy = "^1.24.2"
 click = "^8.1.3"
 dask = {extras = ["dataframe"], version = "^2023.3.0"}
+sqlitedict = "^2.1.0"
+tqdm = "^4.65.0"
+lz4 = "^4.3.2"
 
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.scripts]
-nocap = "lil_nocap.nocap:NoCap.cli"
+nocap = "lil_nocap.__init__:NoCap.cli"
